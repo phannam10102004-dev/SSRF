@@ -4,24 +4,48 @@ import "./Preview.css";
 
 const VULNERABLE_EXAMPLES = [
   {
-    name: "Localhost Attack",
+    name: "🏠 Localhost Attack",
     url: "http://localhost:3001/api/health",
     description: "Tấn công đến localhost - có thể truy cập internal services",
+    level: "Dễ",
   },
   {
-    name: "Metadata Endpoint",
+    name: "🔐 Internal API (Users)",
+    url: "http://localhost:3001/api/internal/users",
+    description: "Lấy danh sách users từ internal API - dữ liệu nhạy cảm!",
+    level: "Thú vị",
+  },
+  {
+    name: "⚙️ Internal Config",
+    url: "http://localhost:3001/api/internal/config",
+    description: "Lấy config và secrets từ internal endpoint - rất nguy hiểm!",
+    level: "Nguy hiểm",
+  },
+  {
+    name: "☁️ Metadata Endpoint",
     url: "http://169.254.169.254/latest/meta-data/",
-    description: "Tấn công AWS metadata endpoint (giả lập)",
+    description:
+      "Tấn công AWS metadata endpoint (giả lập) - phổ biến trong thực tế",
+    level: "Phổ biến",
   },
   {
-    name: "Internal Network",
+    name: "🌐 Internal Network",
     url: "http://192.168.1.1",
-    description: "Tấn công đến IP nội bộ trong mạng",
+    description:
+      "Tấn công đến IP nội bộ trong mạng (router, internal services)",
+    level: "Khám phá",
   },
   {
-    name: "Public Website",
+    name: "🔍 Port Scan Demo",
+    url: "http://localhost:3001/api/internal/scan/3306",
+    description: "Demo quét port để tìm service (MySQL port 3306)",
+    level: "Thú vị",
+  },
+  {
+    name: "✅ Public Website",
     url: "https://github.com",
-    description: "Test với website công khai (sẽ hoạt động)",
+    description: "Test với website công khai (sẽ hoạt động bình thường)",
+    level: "Test",
   },
 ];
 
@@ -89,7 +113,7 @@ function VulnerablePreview() {
         </div>
 
         <div className="examples">
-          <p className="examples-title">Ví dụ tấn công SSRF:</p>
+          <p className="examples-title">Ví dụ tấn công SSRF (click để thử):</p>
           <div className="example-buttons">
             {VULNERABLE_EXAMPLES.map((example, idx) => (
               <button
@@ -97,12 +121,18 @@ function VulnerablePreview() {
                 type="button"
                 onClick={() => handleExampleClick(example.url)}
                 className="example-btn"
-                title={example.description}
+                title={`${example.description} [${example.level}]`}
               >
                 {example.name}
+                <span className="example-level">({example.level})</span>
               </button>
             ))}
           </div>
+          <p className="examples-hint">
+            💡 <strong>Gợi ý:</strong> Bắt đầu với "Localhost Attack" để thấy
+            kết quả rõ nhất, sau đó thử "Internal API" và "Internal Config" để
+            thấy mức độ nguy hiểm!
+          </p>
         </div>
       </form>
 

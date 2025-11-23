@@ -3,6 +3,11 @@ node_modules/
 /.pnp
 .pnp.js
 
+# MongoDB Export
+export/
+*.bson
+*.metadata.json
+
 # Testing
 /coverage
 

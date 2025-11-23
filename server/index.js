@@ -1,15 +1,244 @@
+// Load environment variables từ file .env
+require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
 const dns = require("dns").promises;
 const { URL } = require("url");
-const { parseMetadata } = require("./utils/metadataParser");
+const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const {
+  parseMetadata,
+  extractYouTubeVideoId,
+  createYouTubeMetadata,
+} = require("./utils/metadataParser");
+const User = require("./models/User");
+const Post = require("./models/Post");
+const FriendRequest = require("./models/FriendRequest");
+const Notification = require("./models/Notification");
+const Message = require("./models/Message");
+const Conversation = require("./models/Conversation");
+const { upload: uploadAvatar, cloudinary } = require("./utils/cloudinary");
+const multer = require("multer");
+const fs = require("fs");
+const upload = multer({ dest: "uploads/" });
+const http = require("http");
+const socketIo = require("socket.io");
 
 const app = express();
+const server = http.createServer(app);
+const io = socketIo(server, {
+  cors: {
+    origin: ["http://localhost:3000", "http://localhost:3002"],
+    methods: ["GET", "POST", "OPTIONS"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"],
+  },
+  transports: ["websocket", "polling"],
+});
 const PORT = 3001;
+const MONGODB_URI =
+  process.env.MONGODB_URI || "mongodb://localhost:27017/ssrf-demo";
+const JWT_SECRET =
+  process.env.JWT_SECRET || "your-secret-key-change-in-production";
 
-app.use(cors());
-app.use(express.json());
+// Kết nối MongoDB
+mongoose
+  .connect(MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => {
+    console.log("✅ Đã kết nối MongoDB thành công");
+    initializeSampleData();
+  })
+  .catch((err) => {
+    console.error("❌ Lỗi kết nối MongoDB:", err.message);
+  });
+
+app.use(
+  cors({
+    origin: ["http://localhost:3000", "http://localhost:3002"],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+// Tăng giới hạn body size để xử lý payload lớn (50MB)
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+// ========== AUTHENTICATION MIDDLEWARE ==========
+const authenticateToken = async (req, res, next) => {
+  try {
+    const authHeader = req.headers["authorization"];
+    const token = authHeader && authHeader.split(" ")[1]; // Bearer TOKEN
+
+    if (!token) {
+      return res.status(401).json({ error: "Token không tồn tại" });
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const user = await User.findById(decoded.userId).select("-password");
+
+    if (!user || !user.isActive) {
+      return res.status(401).json({ error: "User không hợp lệ" });
+    }
+
+    req.user = user;
+    next();
+  } catch (error) {
+    if (error.name === "JsonWebTokenError") {
+      return res.status(401).json({ error: "Token không hợp lệ" });
+    }
+    if (error.name === "TokenExpiredError") {
+      return res.status(401).json({ error: "Token đã hết hạn" });
+    }
+    return res.status(500).json({ error: "Lỗi xác thực" });
+  }
+};
+
+// ========== AUTHENTICATION ENDPOINTS ==========
+
+// Đăng ký
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: "Vui lòng điền đầy đủ thông tin" });
+    }
+
+    if (password.length < 6) {
+      return res
+        .status(400)
+        .json({ error: "Mật khẩu phải có ít nhất 6 ký tự" });
+    }
+
+    // Kiểm tra email đã tồn tại
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    if (existingUser) {
+      return res.status(400).json({ error: "Email đã được sử dụng" });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Tạo user mới
+    const user = new User({
+      name,
+      email: email.toLowerCase(),
+      password: hashedPassword,
+      role: "user",
+    });
+
+    await user.save();
+
+    // Tạo JWT token
+    const token = jwt.sign(
+      { userId: user._id, email: user.email },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.status(201).json({
+      success: true,
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        avatar: user.avatar,
+        bio: user.bio,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Lỗi đăng ký:", error);
+
+    // Xử lý lỗi MongoDB duplicate key
+    if (error.code === 11000) {
+      return res.status(400).json({ error: "Email đã được sử dụng" });
+    }
+
+    res.status(500).json({ error: "Lỗi khi đăng ký. Vui lòng thử lại." });
+  }
+});
+
+// Đăng nhập
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: "Vui lòng nhập email và mật khẩu" });
+    }
+
+    // Tìm user
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return res.status(401).json({ error: "Email hoặc mật khẩu không đúng" });
+    }
+
+    if (!user.isActive) {
+      return res.status(401).json({ error: "Tài khoản đã bị khóa" });
+    }
+
+    // Kiểm tra password
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ error: "Email hoặc mật khẩu không đúng" });
+    }
+
+    // Cập nhật lastLoginAt
+    user.lastLoginAt = new Date();
+    await user.save();
+
+    // Tạo JWT token
+    const token = jwt.sign(
+      { userId: user._id, email: user.email },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        avatar: user.avatar,
+        bio: user.bio,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Lỗi đăng nhập:", error);
+    res.status(500).json({ error: "Lỗi khi đăng nhập. Vui lòng thử lại." });
+  }
+});
+
+// Verify token và lấy thông tin user
+app.get("/api/auth/me", authenticateToken, async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      user: {
+        id: req.user._id,
+        name: req.user.name,
+        email: req.user.email,
+        role: req.user.role,
+        avatar: req.user.avatar,
+        bio: req.user.bio,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Lỗi khi lấy thông tin user" });
+  }
+});
 
 // Danh sách IP nội bộ cần chặn
 const PRIVATE_IP_RANGES = [
@@ -89,7 +318,47 @@ app.post("/api/vulnerable/preview", async (req, res) => {
       return res.status(400).json({ error: "URL là bắt buộc" });
     }
 
-    console.log("\n🚨 [VULNERABLE] Nhận request preview cho URL:", url);
+    // Kiểm tra YouTube URL trước
+    const videoId = extractYouTubeVideoId(url);
+    if (videoId) {
+      try {
+        // Fetch YouTube oEmbed API để lấy metadata chính xác
+        const oEmbedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(
+          url
+        )}&format=json`;
+        const oEmbedResponse = await axios.get(oEmbedUrl, {
+          timeout: 5000,
+        });
+
+        const metadata = createYouTubeMetadata(videoId, url);
+        if (oEmbedResponse.data) {
+          metadata.title = oEmbedResponse.data.title || metadata.title;
+          metadata.description =
+            oEmbedResponse.data.author_name || metadata.description;
+          if (oEmbedResponse.data.thumbnail_url) {
+            metadata.image = oEmbedResponse.data.thumbnail_url;
+          }
+        }
+
+        return res.json({
+          success: true,
+          metadata: metadata,
+          vulnerable: true,
+          warning:
+            "⚠️ Endpoint này dễ bị tấn công SSRF! Có thể truy cập internal services.",
+        });
+      } catch (e) {
+        // Nếu oEmbed fail, dùng default metadata
+        const metadata = createYouTubeMetadata(videoId, url);
+        return res.json({
+          success: true,
+          metadata: metadata,
+          vulnerable: true,
+          warning:
+            "⚠️ Endpoint này dễ bị tấn công SSRF! Có thể truy cập internal services.",
+        });
+      }
+    }
 
     // ⚠️ VULNERABLE: Không kiểm tra URL, cho phép bất kỳ URL nào
     // Có thể bị tấn công SSRF để truy cập internal services
@@ -103,13 +372,50 @@ app.post("/api/vulnerable/preview", async (req, res) => {
       validateStatus: () => true,
     });
 
-    // Parse metadata từ HTML
-    const metadata = parseMetadata(response.data, url);
+    // Kiểm tra nếu response là JSON (có thể là internal API)
+    let metadata = null;
+    let jsonData = null;
 
-    console.log("✅ [VULNERABLE] Fetch thành công:", {
-      status: response.status,
-      contentType: response.headers["content-type"],
-    });
+    const contentType = response.headers["content-type"] || "";
+
+    // Thử parse JSON nếu content-type là json hoặc data là object/string
+    if (
+      contentType.includes("application/json") ||
+      typeof response.data === "object" ||
+      typeof response.data === "string"
+    ) {
+      try {
+        // Parse JSON nếu là string, hoặc dùng trực tiếp nếu là object
+        if (typeof response.data === "string") {
+          jsonData = JSON.parse(response.data);
+        } else if (typeof response.data === "object") {
+          jsonData = response.data;
+        }
+
+        // Tạo metadata từ JSON response
+        metadata = {
+          url: url,
+          title: jsonData.message || jsonData.title || "Internal API Response",
+          description:
+            jsonData.warning ||
+            jsonData.description ||
+            (jsonData.users
+              ? `⚠️ Đây là internal API - không nên expose ra ngoài! Tổng số users: ${
+                  jsonData.total || jsonData.users?.length || 0
+                }`
+              : JSON.stringify(jsonData).substring(0, 200)),
+          image: null,
+          siteName: new URL(url).hostname,
+          type: "api",
+        };
+      } catch (e) {
+        // Nếu không parse được JSON, dùng HTML parser
+        metadata = parseMetadata(response.data, url);
+      }
+    } else {
+      // Response là HTML - parse metadata
+      metadata = parseMetadata(response.data, url);
+    }
 
     res.json({
       success: true,
@@ -120,6 +426,7 @@ app.post("/api/vulnerable/preview", async (req, res) => {
       rawResponse: {
         status: response.status,
         headers: Object.keys(response.headers),
+        data: jsonData || response.data,
       },
     });
   } catch (error) {
@@ -142,15 +449,9 @@ app.post("/api/secure/preview", async (req, res) => {
       return res.status(400).json({ error: "URL là bắt buộc" });
     }
 
-    console.log("\n🛡️ [SECURE] Nhận request preview cho URL:", url);
-
     // ✅ SECURE: Kiểm tra URL an toàn
     const urlCheck = isSafeURL(url);
     if (!urlCheck.safe) {
-      console.warn(
-        "⚠️ [SECURE] Bị chặn do protocol/định dạng:",
-        urlCheck.reason
-      );
       return res.status(400).json({
         error: urlCheck.reason,
         secure: true,
@@ -160,7 +461,6 @@ app.post("/api/secure/preview", async (req, res) => {
     // ✅ SECURE: Validate DNS và IP
     const validation = await validateURL(url);
     if (!validation.valid) {
-      console.warn("⚠️ [SECURE] Bị chặn do DNS/IP:", validation.reason);
       return res.status(403).json({
         error: validation.reason,
         secure: true,
@@ -190,6 +490,48 @@ app.post("/api/secure/preview", async (req, res) => {
     }
     */
 
+    // Kiểm tra YouTube URL trước
+    const videoId = extractYouTubeVideoId(url);
+    if (videoId) {
+      try {
+        // Fetch YouTube oEmbed API để lấy metadata chính xác
+        const oEmbedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(
+          url
+        )}&format=json`;
+        const oEmbedResponse = await axios.get(oEmbedUrl, {
+          timeout: 5000,
+        });
+
+        const metadata = createYouTubeMetadata(videoId, url);
+        if (oEmbedResponse.data) {
+          metadata.title = oEmbedResponse.data.title || metadata.title;
+          metadata.description =
+            oEmbedResponse.data.author_name || metadata.description;
+          if (oEmbedResponse.data.thumbnail_url) {
+            metadata.image = oEmbedResponse.data.thumbnail_url;
+          }
+        }
+
+        return res.json({
+          success: true,
+          metadata: metadata,
+          secure: true,
+          message: "✅ Link preview đã được tạo an toàn",
+          resolvedIPs: validation.addresses,
+        });
+      } catch (e) {
+        // Nếu oEmbed fail, dùng default metadata
+        const metadata = createYouTubeMetadata(videoId, url);
+        return res.json({
+          success: true,
+          metadata: metadata,
+          secure: true,
+          message: "✅ Link preview đã được tạo an toàn",
+          resolvedIPs: validation.addresses,
+        });
+      }
+    }
+
     // Fetch và parse metadata
     const response = await axios.get(url, {
       timeout: 5000,
@@ -202,12 +544,6 @@ app.post("/api/secure/preview", async (req, res) => {
     });
 
     const metadata = parseMetadata(response.data, url);
-
-    console.log("✅ [SECURE] Fetch thành công:", {
-      status: response.status,
-      contentType: response.headers["content-type"],
-      resolvedIPs: validation.addresses,
-    });
 
     res.json({
       success: true,
@@ -246,10 +582,1614 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "OK", message: "Server đang chạy" });
 });
 
-app.listen(PORT, () => {
+// ========== INTERNAL API - Dễ bị SSRF ==========
+
+// ⚠️ VULNERABLE: Internal API endpoint - Lấy users từ MongoDB
+// Endpoint này chỉ nên truy cập từ localhost, nhưng có thể bị SSRF!
+app.get("/api/internal/users", async (req, res) => {
+  try {
+    // Kiểm tra MongoDB connection
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        message: "⚠️ Đây là internal API - không nên expose ra ngoài!",
+        error: "MongoDB chưa kết nối",
+        total: 0,
+        users: [],
+        warning:
+          "MongoDB connection chưa sẵn sàng. Kiểm tra connection string và đảm bảo MongoDB đang chạy.",
+      });
+    }
+
+    const users = await User.find({}).select("-password").lean();
+
+    res.setHeader("Content-Type", "application/json");
+
+    res.json({
+      message: "⚠️ Đây là internal API - không nên expose ra ngoài!",
+      total: users.length,
+      users: users,
+      warning:
+        "Nếu attacker có thể truy cập endpoint này qua SSRF, họ đã lấy được dữ liệu nhạy cảm từ MongoDB!",
+    });
+  } catch (error) {
+    console.error("❌ [INTERNAL API] Lỗi:", error.message);
+    res.status(500).json({
+      message: "⚠️ Đây là internal API - không nên expose ra ngoài!",
+      error: "Lỗi khi lấy dữ liệu users",
+      message_detail: error.message,
+      total: 0,
+      users: [],
+    });
+  }
+});
+
+// ⚠️ VULNERABLE: Internal API - Lấy user theo ID
+app.get("/api/internal/users/:id", async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select("-password").lean();
+
+    if (!user) {
+      return res.status(404).json({ error: "User không tồn tại" });
+    }
+
+    res.json({
+      message: "⚠️ Internal API - User details",
+      user: user,
+      warning: "Dữ liệu nhạy cảm có thể bị lộ qua SSRF!",
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Lỗi khi lấy user",
+      message: error.message,
+    });
+  }
+});
+
+// Demo: Internal config endpoint
+app.get("/api/internal/config", (req, res) => {
+  res.json({
+    message: "⚠️ Internal config endpoint",
+    database: {
+      host: "internal-db.example.com",
+      port: 5432,
+      name: "production_db",
+    },
+    secrets: {
+      apiKey: "sk_live_1234567890abcdef",
+      jwtSecret: "super-secret-key-123",
+    },
+    warning: "Trong thực tế, đây có thể là credentials thật!",
+  });
+});
+
+// ========== POSTS API ==========
+
+// Lưu post vào MongoDB (yêu cầu authentication)
+app.post(
+  "/api/posts",
+  authenticateToken,
+  upload.array("images", 10),
+  async (req, res) => {
+    try {
+      const { content, url, linkPreview, isVulnerable } = req.body;
+      const files = req.files || [];
+
+      if (!content && !url && files.length === 0) {
+        return res
+          .status(400)
+          .json({ error: "Nội dung, URL hoặc ảnh là bắt buộc" });
+      }
+
+      // Upload images lên Cloudinary
+      const imageUrls = [];
+      if (files.length > 0) {
+        for (const file of files) {
+          try {
+            const result = await cloudinary.uploader.upload(file.path, {
+              folder: "posts",
+              resource_type: "image",
+            });
+            imageUrls.push(result.secure_url);
+            // Xóa file tạm
+            fs.unlinkSync(file.path);
+          } catch (uploadError) {
+            console.error("Lỗi khi upload ảnh:", uploadError);
+            // Xóa file tạm dù upload lỗi
+            if (fs.existsSync(file.path)) {
+              fs.unlinkSync(file.path);
+            }
+          }
+        }
+      }
+
+      // Parse linkPreview nếu là string
+      let cleanedLinkPreview = null;
+      if (linkPreview) {
+        try {
+          const parsed =
+            typeof linkPreview === "string"
+              ? JSON.parse(linkPreview)
+              : linkPreview;
+
+          cleanedLinkPreview = { ...parsed };
+          // Loại bỏ rawResponse.data nếu có
+          if (
+            cleanedLinkPreview.rawResponse &&
+            cleanedLinkPreview.rawResponse.data
+          ) {
+            cleanedLinkPreview.rawResponse = {
+              status: cleanedLinkPreview.rawResponse.status,
+              headers: cleanedLinkPreview.rawResponse.headers,
+            };
+          }
+        } catch (e) {
+          cleanedLinkPreview = linkPreview;
+        }
+      }
+
+      const post = new Post({
+        content: content || "",
+        url: url || "",
+        linkPreview: cleanedLinkPreview,
+        images: imageUrls,
+        isVulnerable: isVulnerable === "true" || isVulnerable === true,
+        author: req.user._id,
+        authorName: req.user.name,
+      });
+
+      const savedPost = await post.save();
+
+      // Populate author để trả về thông tin đầy đủ
+      await savedPost.populate("author", "name email avatar");
+
+      res.json({
+        success: true,
+        post: savedPost,
+      });
+    } catch (error) {
+      // Xóa các file tạm nếu có lỗi
+      if (req.files) {
+        req.files.forEach((file) => {
+          if (fs.existsSync(file.path)) {
+            fs.unlinkSync(file.path);
+          }
+        });
+      }
+      res.status(500).json({
+        error: "Lỗi khi lưu post",
+        message: error.message,
+      });
+    }
+  }
+);
+
+// Lấy tất cả posts (yêu cầu authentication)
+app.get("/api/posts", authenticateToken, async (req, res) => {
+  try {
+    const { isVulnerable, authorId } = req.query;
+    const query = {};
+
+    if (isVulnerable !== undefined) {
+      query.isVulnerable = isVulnerable === "true";
+    }
+
+    if (authorId) {
+      query.author = authorId;
+    }
+
+    const posts = await Post.find(query)
+      .populate("author", "name email avatar")
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
+
+    res.json({
+      success: true,
+      posts: posts,
+      total: posts.length,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Lỗi khi lấy posts",
+      message: error.message,
+    });
+  }
+});
+
+// ========== USERS API (Public) ==========
+
+// Tạo user mới (demo)
+app.post("/api/users", async (req, res) => {
+  try {
+    const { name, email, password, role } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: "Thiếu thông tin bắt buộc" });
+    }
+
+    const user = new User({
+      name,
+      email,
+      password, // Trong thực tế nên hash password
+      role: role || "user",
+    });
+
+    const savedUser = await user.save();
+    res.json({
+      success: true,
+      user: {
+        id: savedUser._id,
+        name: savedUser.name,
+        email: savedUser.email,
+        role: savedUser.role,
+      },
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ error: "Email đã tồn tại" });
+    }
+    res.status(500).json({
+      error: "Lỗi khi tạo user",
+      message: error.message,
+    });
+  }
+});
+
+// Lấy danh sách users (public - không có password)
+app.get("/api/users", async (req, res) => {
+  try {
+    const users = await User.find({})
+      .select("name email role avatar bio createdAt")
+      .limit(20)
+      .lean();
+
+    res.json({
+      success: true,
+      users: users,
+      total: users.length,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Lỗi khi lấy users",
+      message: error.message,
+    });
+  }
+});
+
+// ========== FRIENDS API ==========
+
+// Lấy danh sách users đề xuất (không phải bạn, không có request pending, không phải chính mình)
+app.get("/api/users/suggestions", authenticateToken, async (req, res) => {
+  try {
+    const currentUser = await User.findById(req.user._id);
+    const friendIds = currentUser.friends || [];
+    friendIds.push(req.user._id); // Loại bỏ chính mình
+
+    // Lấy danh sách user đã gửi request
+    const sentRequests = await FriendRequest.find({
+      from: req.user._id,
+      status: "pending",
+    }).select("to");
+    const requestedUserIds = sentRequests.map((r) => r.to);
+
+    // Lấy danh sách user đã gửi request cho mình
+    const receivedRequests = await FriendRequest.find({
+      to: req.user._id,
+      status: "pending",
+    }).select("from");
+    const receivedUserIds = receivedRequests.map((r) => r.from);
+
+    // Loại bỏ tất cả: bạn bè, chính mình, đã gửi request, đã nhận request
+    const excludeIds = [...friendIds, ...requestedUserIds, ...receivedUserIds];
+
+    const suggestedUsers = await User.find({
+      _id: { $nin: excludeIds },
+      isActive: true,
+    })
+      .select("name email role avatar bio friends")
+      .limit(20)
+      .lean();
+
+    // Tính số bạn chung cho mỗi user
+    const usersWithMutualFriends = suggestedUsers.map((user) => {
+      const userFriends = (user.friends || []).map((id) => id.toString());
+      const currentUserFriendIds = friendIds.map((id) => id.toString());
+      const mutualFriends = userFriends.filter((friendId) =>
+        currentUserFriendIds.includes(friendId)
+      );
+      return {
+        ...user,
+        mutualFriendsCount: mutualFriends.length,
+      };
+    });
+
+    // Sắp xếp theo số bạn chung (nhiều nhất trước)
+    usersWithMutualFriends.sort(
+      (a, b) => b.mutualFriendsCount - a.mutualFriendsCount
+    );
+
+    res.json({
+      success: true,
+      users: usersWithMutualFriends,
+      total: usersWithMutualFriends.length,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Lỗi khi lấy đề xuất",
+      message: error.message,
+    });
+  }
+});
+
+// Lấy danh sách bạn bè
+app.get("/api/users/friends", authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id)
+      .populate("friends", "name email avatar bio")
+      .lean();
+
+    res.json({
+      success: true,
+      friends: user.friends || [],
+      total: (user.friends || []).length,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Lỗi khi lấy danh sách bạn bè",
+      message: error.message,
+    });
+  }
+});
+
+// ========== FRIEND REQUESTS API ==========
+
+// Gửi yêu cầu kết bạn
+app.post("/api/users/friend-requests", authenticateToken, async (req, res) => {
+  try {
+    const { toUserId } = req.body;
+
+    if (!toUserId) {
+      return res.status(400).json({ error: "Thiếu toUserId" });
+    }
+
+    if (toUserId === req.user._id.toString()) {
+      return res
+        .status(400)
+        .json({ error: "Không thể gửi yêu cầu cho chính mình" });
+    }
+
+    const toUser = await User.findById(toUserId);
+    if (!toUser) {
+      return res.status(404).json({ error: "User không tồn tại" });
+    }
+
+    // Kiểm tra đã là bạn chưa
+    const currentUser = await User.findById(req.user._id);
+    if (currentUser.friends.includes(toUserId)) {
+      return res.status(400).json({ error: "Đã là bạn bè rồi" });
+    }
+
+    // Kiểm tra đã có request pending chưa
+    const existingPendingRequest = await FriendRequest.findOne({
+      $or: [
+        { from: req.user._id, to: toUserId, status: "pending" },
+        { from: toUserId, to: req.user._id, status: "pending" },
+      ],
+    });
+
+    if (existingPendingRequest) {
+      return res.status(400).json({ error: "Đã có yêu cầu kết bạn" });
+    }
+
+    // Nếu có request rejected, xóa nó đi để có thể gửi lại
+    const existingRejectedRequest = await FriendRequest.findOne({
+      $or: [
+        { from: req.user._id, to: toUserId, status: "rejected" },
+        { from: toUserId, to: req.user._id, status: "rejected" },
+      ],
+    });
+
+    if (existingRejectedRequest) {
+      await FriendRequest.deleteOne({ _id: existingRejectedRequest._id });
+    }
+
+    // Tạo friend request mới
+    const friendRequest = new FriendRequest({
+      from: req.user._id,
+      to: toUserId,
+      status: "pending",
+    });
+    await friendRequest.save();
+
+    // Tạo notification cho người nhận
+    const notification = new Notification({
+      user: toUserId,
+      type: "friend_request",
+      from: req.user._id,
+      relatedId: friendRequest._id,
+      message: `${currentUser.name} đã gửi yêu cầu kết bạn`,
+    });
+    await notification.save();
+
+    res.json({
+      success: true,
+      message: "Đã gửi yêu cầu kết bạn",
+      request: friendRequest,
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ error: "Đã có yêu cầu kết bạn" });
+    }
+    res.status(500).json({
+      error: "Lỗi khi gửi yêu cầu",
+      message: error.message,
+    });
+  }
+});
+
+// Lấy danh sách yêu cầu kết bạn (đã gửi và đã nhận)
+app.get("/api/users/friend-requests", authenticateToken, async (req, res) => {
+  try {
+    const { type } = req.query; // 'sent' or 'received'
+
+    let requests;
+    if (type === "sent") {
+      requests = await FriendRequest.find({
+        from: req.user._id,
+        status: "pending",
+      })
+        .populate("to", "name email avatar bio")
+        .sort({ createdAt: -1 })
+        .lean();
+    } else if (type === "received") {
+      requests = await FriendRequest.find({
+        to: req.user._id,
+        status: "pending",
+      })
+        .populate("from", "name email avatar bio")
+        .sort({ createdAt: -1 })
+        .lean();
+    } else {
+      // Lấy cả hai
+      const sent = await FriendRequest.find({
+        from: req.user._id,
+        status: "pending",
+      })
+        .populate("to", "name email avatar bio")
+        .lean();
+      const received = await FriendRequest.find({
+        to: req.user._id,
+        status: "pending",
+      })
+        .populate("from", "name email avatar bio")
+        .lean();
+      requests = { sent, received };
+    }
+
+    res.json({
+      success: true,
+      requests: requests,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Lỗi khi lấy yêu cầu kết bạn",
+      message: error.message,
+    });
+  }
+});
+
+// Chấp nhận yêu cầu kết bạn
+app.post(
+  "/api/users/friend-requests/:requestId/accept",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { requestId } = req.params;
+
+      const friendRequest = await FriendRequest.findById(requestId);
+      if (!friendRequest) {
+        return res.status(404).json({ error: "Yêu cầu không tồn tại" });
+      }
+
+      if (friendRequest.to.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ error: "Không có quyền chấp nhận" });
+      }
+
+      if (friendRequest.status !== "pending") {
+        return res.status(400).json({ error: "Yêu cầu đã được xử lý" });
+      }
+
+      // Lưu requestId trước khi xóa (để dùng cho notification)
+      const savedRequestId = friendRequest._id;
+
+      // Thêm bạn bè cho cả hai
+      const fromUser = await User.findById(friendRequest.from);
+      const toUser = await User.findById(friendRequest.to);
+
+      if (!fromUser.friends.includes(friendRequest.to)) {
+        fromUser.friends.push(friendRequest.to);
+      }
+      if (!toUser.friends.includes(friendRequest.from)) {
+        toUser.friends.push(friendRequest.from);
+      }
+
+      await fromUser.save();
+      await toUser.save();
+
+      // Xóa request sau khi đã thêm bạn bè thành công
+      await FriendRequest.deleteOne({ _id: friendRequest._id });
+
+      // Tạo notification cho người gửi
+      const notification = new Notification({
+        user: friendRequest.from,
+        type: "friend_accepted",
+        from: req.user._id,
+        relatedId: savedRequestId,
+        message: `${toUser.name} đã chấp nhận yêu cầu kết bạn`,
+      });
+      await notification.save();
+
+      // Đánh dấu notification cũ là đã đọc
+      await Notification.updateMany(
+        {
+          user: req.user._id,
+          type: "friend_request",
+          relatedId: savedRequestId,
+        },
+        { read: true }
+      );
+
+      res.json({
+        success: true,
+        message: "Đã chấp nhận yêu cầu kết bạn",
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: "Lỗi khi chấp nhận yêu cầu",
+        message: error.message,
+      });
+    }
+  }
+);
+
+// Từ chối/Hủy yêu cầu kết bạn
+app.delete(
+  "/api/users/friend-requests/:requestId",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { requestId } = req.params;
+
+      const friendRequest = await FriendRequest.findById(requestId);
+      if (!friendRequest) {
+        return res.status(404).json({ error: "Yêu cầu không tồn tại" });
+      }
+
+      // Chỉ người gửi hoặc người nhận mới có thể xóa
+      const isSender =
+        friendRequest.from.toString() === req.user._id.toString();
+      const isReceiver =
+        friendRequest.to.toString() === req.user._id.toString();
+
+      if (!isSender && !isReceiver) {
+        return res.status(403).json({ error: "Không có quyền xóa" });
+      }
+
+      // Xóa request thực sự (không chỉ set status)
+      await FriendRequest.deleteOne({ _id: requestId });
+
+      res.json({
+        success: true,
+        message: "Đã hủy yêu cầu kết bạn",
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: "Lỗi khi hủy yêu cầu",
+        message: error.message,
+      });
+    }
+  }
+);
+
+// Xóa bạn
+app.delete(
+  "/api/users/friends/:friendId",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { friendId } = req.params;
+
+      const user = await User.findById(req.user._id);
+      const friend = await User.findById(friendId);
+
+      if (!friend) {
+        return res.status(404).json({ error: "User không tồn tại" });
+      }
+
+      // Xóa bạn khỏi danh sách (cả hai phía)
+      user.friends = user.friends.filter((id) => id.toString() !== friendId);
+      friend.friends = friend.friends.filter(
+        (id) => id.toString() !== req.user._id.toString()
+      );
+
+      await user.save();
+      await friend.save();
+
+      res.json({
+        success: true,
+        message: "Đã xóa bạn thành công",
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: "Lỗi khi xóa bạn",
+        message: error.message,
+      });
+    }
+  }
+);
+
+// ========== MESSAGES API ==========
+
+// Lấy danh sách contacts (bạn bè + người đã nhắn tin)
+app.get("/api/contacts", authenticateToken, async (req, res) => {
+  try {
+    const currentUser = await User.findById(req.user._id);
+
+    // Lấy danh sách bạn bè
+    const friends = await User.find({
+      _id: { $in: currentUser.friends || [] },
+    }).select("name avatar email");
+
+    // Lấy danh sách conversations để tìm người đã nhắn tin
+    const conversations = await Conversation.find({
+      participants: req.user._id,
+    })
+      .populate("participants", "name avatar email")
+      .sort({ lastMessageAt: -1 });
+
+    // Lấy tất cả người đã nhắn tin (không phải bạn bè)
+    const conversationUserIds = new Set();
+    conversations.forEach((conv) => {
+      conv.participants.forEach((participant) => {
+        if (participant._id.toString() !== req.user._id.toString()) {
+          conversationUserIds.add(participant._id.toString());
+        }
+      });
+    });
+
+    // Lấy danh sách người đã nhắn tin nhưng chưa là bạn bè
+    const friendIds = new Set(
+      (currentUser.friends || []).map((id) => id.toString())
+    );
+    const nonFriendIds = Array.from(conversationUserIds).filter(
+      (id) => !friendIds.has(id)
+    );
+
+    const nonFriends = await User.find({
+      _id: { $in: nonFriendIds },
+    }).select("name avatar email");
+
+    // Kết hợp và loại bỏ duplicate
+    const allContacts = [];
+    const seenIds = new Set();
+
+    // Thêm bạn bè trước
+    friends.forEach((friend) => {
+      const id = friend._id.toString();
+      if (!seenIds.has(id)) {
+        seenIds.add(id);
+        allContacts.push({
+          ...friend.toObject(),
+          isFriend: true,
+        });
+      }
+    });
+
+    // Thêm người đã nhắn tin (không phải bạn bè)
+    nonFriends.forEach((user) => {
+      const id = user._id.toString();
+      if (!seenIds.has(id)) {
+        seenIds.add(id);
+        allContacts.push({
+          ...user.toObject(),
+          isFriend: false,
+        });
+      }
+    });
+
+    res.json({
+      success: true,
+      contacts: allContacts,
+      total: allContacts.length,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Lỗi khi lấy danh sách contacts",
+      message: error.message,
+    });
+  }
+});
+
+// Lấy danh sách conversations
+app.get("/api/conversations", authenticateToken, async (req, res) => {
+  try {
+    const conversations = await Conversation.find({
+      participants: req.user._id,
+    })
+      .populate("participants", "name avatar")
+      .populate("lastMessage")
+      .sort({ lastMessageAt: -1 });
+
+    // Loại bỏ duplicate conversations (nếu có)
+    // Group by participants (sau khi sort) và chỉ lấy conversation mới nhất
+    const uniqueConversations = [];
+    const seenParticipants = new Map();
+
+    for (const conv of conversations) {
+      // Sort participants để tạo key unique
+      const sortedParticipants = conv.participants
+        .map((p) => p._id.toString())
+        .sort()
+        .join(",");
+
+      if (!seenParticipants.has(sortedParticipants)) {
+        seenParticipants.set(sortedParticipants, conv);
+        uniqueConversations.push(conv);
+      } else {
+        // Nếu đã có, so sánh lastMessageAt và giữ conversation mới hơn
+        const existing = seenParticipants.get(sortedParticipants);
+        if (
+          conv.lastMessageAt &&
+          (!existing.lastMessageAt ||
+            conv.lastMessageAt > existing.lastMessageAt)
+        ) {
+          const index = uniqueConversations.indexOf(existing);
+          uniqueConversations[index] = conv;
+          seenParticipants.set(sortedParticipants, conv);
+        }
+      }
+    }
+
+    const finalConversations = uniqueConversations;
+
+    // Tính unread count cho mỗi conversation
+    const conversationsWithUnread = await Promise.all(
+      finalConversations.map(async (conv) => {
+        const unreadCount = await Message.countDocuments({
+          conversationId: conv._id,
+          receiver: req.user._id,
+          read: false,
+          deleted: false,
+        });
+
+        return {
+          ...conv.toObject(),
+          unreadCount,
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      conversations: conversationsWithUnread,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Lỗi khi lấy danh sách conversations",
+      message: error.message,
+    });
+  }
+});
+
+// Lấy hoặc tạo conversation với một user
+app.post("/api/conversations", authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: "Thiếu userId" });
+    }
+
+    if (userId === req.user._id.toString()) {
+      return res
+        .status(400)
+        .json({ error: "Không thể tạo conversation với chính mình" });
+    }
+
+    // Convert sang ObjectId và sắp xếp để unique index hoạt động
+    const currentUserId = new mongoose.Types.ObjectId(req.user._id);
+    const otherUserId = new mongoose.Types.ObjectId(userId);
+    const participants = [currentUserId, otherUserId].sort((a, b) =>
+      a.toString().localeCompare(b.toString())
+    );
+
+    // Tìm conversation đã có - match exact array (sau khi đã sort)
+    let conversation = await Conversation.findOne({
+      participants: { $eq: participants },
+    })
+      .populate("participants", "name avatar")
+      .populate("lastMessage");
+
+    // Nếu không tìm thấy với exact match, thử tìm với $all (có thể có duplicate cũ)
+    if (!conversation) {
+      const existingConvs = await Conversation.find({
+        participants: { $all: participants, $size: 2 },
+      })
+        .populate("participants", "name avatar")
+        .populate("lastMessage")
+        .sort({ lastMessageAt: -1 });
+
+      if (existingConvs.length > 0) {
+        // Lấy conversation mới nhất (có lastMessageAt mới nhất)
+        conversation = existingConvs[0];
+
+        // Nếu có nhiều hơn 1, merge messages vào conversation đầu tiên và xóa các conversation còn lại
+        if (existingConvs.length > 1) {
+          const mainConv = existingConvs[0];
+          const duplicateIds = existingConvs.slice(1).map((c) => c._id);
+
+          // Cập nhật tất cả messages của duplicate conversations sang main conversation
+          await Message.updateMany(
+            { conversationId: { $in: duplicateIds } },
+            { conversationId: mainConv._id }
+          );
+
+          // Xóa duplicate conversations
+          await Conversation.deleteMany({ _id: { $in: duplicateIds } });
+
+          console.log(
+            `✅ Đã merge ${existingConvs.length - 1} duplicate conversations`
+          );
+        }
+      }
+    }
+
+    // Nếu chưa có thì tạo mới
+    if (!conversation) {
+      conversation = new Conversation({
+        participants: participants,
+      });
+      await conversation.save();
+      await conversation.populate("participants", "name avatar");
+    }
+
+    res.json({
+      success: true,
+      conversation: conversation,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Lỗi khi tạo conversation",
+      message: error.message,
+    });
+  }
+});
+
+// Lấy tin nhắn của một conversation
+app.get(
+  "/api/conversations/:conversationId/messages",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { conversationId } = req.params;
+      const { page = 1, limit = 50 } = req.query;
+
+      // Kiểm tra user có trong conversation không
+      const conversation = await Conversation.findById(conversationId);
+      if (!conversation) {
+        return res.status(404).json({ error: "Conversation không tồn tại" });
+      }
+
+      if (!conversation.participants.includes(req.user._id)) {
+        return res.status(403).json({ error: "Không có quyền truy cập" });
+      }
+
+      // Lấy tin nhắn
+      const messages = await Message.find({
+        conversationId: conversationId,
+        deleted: false,
+        $or: [
+          { deletedBy: { $ne: req.user._id } },
+          { deletedBy: { $exists: false } },
+        ],
+      })
+        .populate("sender", "name avatar")
+        .sort({ createdAt: -1 })
+        .limit(parseInt(limit))
+        .skip((parseInt(page) - 1) * parseInt(limit));
+
+      res.json({
+        success: true,
+        messages: messages.reverse(), // Đảo ngược để hiển thị từ cũ đến mới
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: "Lỗi khi lấy tin nhắn",
+        message: error.message,
+      });
+    }
+  }
+);
+
+// Xóa tin nhắn
+app.delete("/api/messages/:messageId", authenticateToken, async (req, res) => {
+  try {
+    const { messageId } = req.params;
+
+    const message = await Message.findById(messageId);
+    if (!message) {
+      return res.status(404).json({ error: "Tin nhắn không tồn tại" });
+    }
+
+    // Chỉ sender hoặc receiver mới được xóa
+    if (
+      message.sender.toString() !== req.user._id.toString() &&
+      message.receiver.toString() !== req.user._id.toString()
+    ) {
+      return res.status(403).json({ error: "Không có quyền xóa tin nhắn" });
+    }
+
+    // Nếu chưa có ai xóa, đánh dấu deleted
+    if (!message.deleted) {
+      message.deleted = true;
+      message.deletedBy = [req.user._id];
+      await message.save();
+    } else {
+      // Nếu đã có người xóa, thêm vào deletedBy
+      if (!message.deletedBy.includes(req.user._id)) {
+        message.deletedBy.push(req.user._id);
+        await message.save();
+      }
+    }
+
+    // Thông báo cho người kia
+    const conversation = await Conversation.findById(message.conversationId);
+    if (conversation) {
+      const otherUserId = conversation.participants.find(
+        (id) => id.toString() !== req.user._id.toString()
+      );
+      if (otherUserId) {
+        io.to(otherUserId.toString()).emit("message_deleted", {
+          messageId: messageId,
+          conversationId: message.conversationId,
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: "Đã xóa tin nhắn",
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Lỗi khi xóa tin nhắn",
+      message: error.message,
+    });
+  }
+});
+
+// Upload file/ảnh cho tin nhắn
+app.post(
+  "/api/messages/upload",
+  authenticateToken,
+  upload.single("file"),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "Không có file" });
+      }
+
+      const maxSize = 10 * 1024 * 1024; // 10MB
+      if (req.file.size > maxSize) {
+        return res.status(400).json({ error: "File quá lớn (tối đa 10MB)" });
+      }
+
+      // Upload lên Cloudinary
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: "ssrf-demo/messages",
+        resource_type: "auto",
+      });
+
+      // Xóa file tạm
+      const fs = require("fs");
+      fs.unlinkSync(req.file.path);
+
+      res.json({
+        success: true,
+        fileUrl: result.secure_url,
+        fileName: req.file.originalname,
+        fileType: req.file.mimetype.startsWith("image/") ? "image" : "file",
+      });
+    } catch (error) {
+      console.error("Lỗi khi upload file:", error);
+      res.status(500).json({
+        error: "Lỗi khi upload file",
+        message: error.message,
+      });
+    }
+  }
+);
+
+// Đánh dấu đã đọc
+app.put(
+  "/api/conversations/:conversationId/read",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { conversationId } = req.params;
+
+      await Message.updateMany(
+        {
+          conversationId: conversationId,
+          receiver: req.user._id,
+          read: false,
+        },
+        { read: true }
+      );
+
+      // Thông báo cho sender
+      const conversation = await Conversation.findById(conversationId);
+      if (conversation) {
+        const otherUserId = conversation.participants.find(
+          (id) => id.toString() !== req.user._id.toString()
+        );
+        if (otherUserId) {
+          io.to(otherUserId.toString()).emit("messages_read", {
+            conversationId: conversationId,
+            userId: req.user._id.toString(),
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        message: "Đã đánh dấu đã đọc",
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: "Lỗi khi đánh dấu đã đọc",
+        message: error.message,
+      });
+    }
+  }
+);
+
+// ========== NOTIFICATIONS API ==========
+
+// Lấy danh sách notifications
+app.get("/api/notifications", authenticateToken, async (req, res) => {
+  try {
+    const { unreadOnly } = req.query;
+
+    const query = { user: req.user._id };
+    if (unreadOnly === "true") {
+      query.read = false;
+    }
+
+    const notifications = await Notification.find(query)
+      .populate("from", "name email avatar")
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
+
+    const unreadCount = await Notification.countDocuments({
+      user: req.user._id,
+      read: false,
+    });
+
+    res.json({
+      success: true,
+      notifications: notifications,
+      unreadCount: unreadCount,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Lỗi khi lấy notifications",
+      message: error.message,
+    });
+  }
+});
+
+// Đánh dấu notification là đã đọc
+app.put("/api/notifications/:id/read", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const notification = await Notification.findById(id);
+    if (!notification) {
+      return res.status(404).json({ error: "Notification không tồn tại" });
+    }
+
+    if (notification.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: "Không có quyền" });
+    }
+
+    notification.read = true;
+    await notification.save();
+
+    res.json({
+      success: true,
+      message: "Đã đánh dấu đã đọc",
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Lỗi khi cập nhật notification",
+      message: error.message,
+    });
+  }
+});
+
+// Đánh dấu tất cả notifications là đã đọc
+app.put("/api/notifications/read-all", authenticateToken, async (req, res) => {
+  try {
+    await Notification.updateMany(
+      { user: req.user._id, read: false },
+      { read: true }
+    );
+
+    res.json({
+      success: true,
+      message: "Đã đánh dấu tất cả là đã đọc",
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Lỗi khi cập nhật notifications",
+      message: error.message,
+    });
+  }
+});
+
+// ========== PROFILE API ==========
+
+// Lấy thông tin profile user
+app.get("/api/users/:userId", authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    // Reload currentUser để đảm bảo có dữ liệu mới nhất
+    const currentUser = await User.findById(req.user._id);
+
+    const user = await User.findById(userId).select("-password").lean();
+
+    if (!user) {
+      return res.status(404).json({ error: "User không tồn tại" });
+    }
+
+    // Kiểm tra có phải bạn bè không (so sánh với dữ liệu mới nhất)
+    const isFriend = currentUser.friends.some(
+      (id) => id.toString() === userId.toString()
+    );
+
+    // Kiểm tra có request pending không (chỉ cần biết có hay không)
+    const hasPendingRequest = await FriendRequest.exists({
+      $or: [
+        { from: req.user._id, to: userId, status: "pending" },
+        { from: userId, to: req.user._id, status: "pending" },
+      ],
+    });
+
+    // Nếu có request, lấy thông tin để xác định sent/received
+    let friendRequestStatus = null;
+    let friendRequestId = null;
+
+    if (hasPendingRequest) {
+      const friendRequest = await FriendRequest.findOne({
+        $or: [
+          { from: req.user._id, to: userId, status: "pending" },
+          { from: userId, to: req.user._id, status: "pending" },
+        ],
+      });
+
+      if (friendRequest) {
+        friendRequestId = friendRequest._id.toString();
+        // Xác định ai là người gửi
+        friendRequestStatus =
+          friendRequest.from.toString() === req.user._id.toString()
+            ? "sent"
+            : "received";
+      }
+    }
+
+    // Lấy số lượng posts
+    const postCount = await Post.countDocuments({ author: userId });
+
+    res.json({
+      success: true,
+      user: {
+        ...user,
+        isFriend,
+        friendRequestStatus,
+        friendRequestId,
+        postCount,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Lỗi khi lấy thông tin user",
+      message: error.message,
+    });
+  }
+});
+
+// Cập nhật profile
+app.put("/api/users/profile", authenticateToken, async (req, res) => {
+  try {
+    const { name, bio } = req.body;
+    const user = await User.findById(req.user._id);
+
+    if (name) user.name = name;
+    if (bio !== undefined) user.bio = bio;
+
+    await user.save();
+
+    res.json({
+      success: true,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        avatar: user.avatar,
+        bio: user.bio,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Lỗi khi cập nhật profile",
+      message: error.message,
+    });
+  }
+});
+
+// Upload avatar
+app.post(
+  "/api/users/avatar",
+  authenticateToken,
+  uploadAvatar.single("avatar"),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "Không có file được upload" });
+      }
+
+      const user = await User.findById(req.user._id);
+      // req.file.path từ CloudinaryStorage đã là Cloudinary URL
+      user.avatar = req.file.path;
+      await user.save();
+
+      res.json({
+        success: true,
+        avatar: user.avatar,
+        message: "Đã cập nhật avatar thành công",
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: "Lỗi khi upload avatar",
+        message: error.message,
+      });
+    }
+  }
+);
+
+// Demo: Port scanning endpoint (giả lập)
+app.get("/api/internal/scan/:port", (req, res) => {
+  const port = parseInt(req.params.port);
+  res.json({
+    message: `⚠️ Port scanning demo - Port ${port}`,
+    port: port,
+    status:
+      port === 22
+        ? "SSH service detected"
+        : port === 3306
+        ? "MySQL detected"
+        : port === 27017
+        ? "MongoDB detected"
+        : "Unknown",
+    warning: "Attacker có thể quét port để tìm service đang chạy",
+  });
+});
+
+// ========== INITIALIZE SAMPLE DATA ==========
+
+async function initializeSampleData() {
+  try {
+    const userCount = await User.countDocuments();
+
+    if (userCount === 0) {
+      const sampleUsers = [
+        {
+          name: "Admin User",
+          email: "admin@ssrf-demo.com",
+          password: "admin123",
+          role: "admin",
+          bio: "System Administrator",
+        },
+        {
+          name: "John Doe",
+          email: "john@ssrf-demo.com",
+          password: "user123",
+          role: "user",
+          bio: "Regular user",
+        },
+        {
+          name: "Jane Smith",
+          email: "jane@ssrf-demo.com",
+          password: "user123",
+          role: "moderator",
+          bio: "Content Moderator",
+        },
+        {
+          name: "Bob Johnson",
+          email: "bob@ssrf-demo.com",
+          password: "user123",
+          role: "user",
+          bio: "Developer",
+        },
+      ];
+
+      await User.insertMany(sampleUsers);
+      console.log("✅ Đã tạo", sampleUsers.length, "sample users");
+    }
+  } catch (error) {
+    console.error("❌ Lỗi khi tạo sample data:", error.message);
+  }
+}
+
+// Endpoint để tạo lại sample users (nếu cần)
+app.post("/api/admin/create-sample-users", async (req, res) => {
+  try {
+    // Xóa tất cả users cũ
+    await User.deleteMany({});
+
+    const sampleUsers = [
+      {
+        name: "Admin User",
+        email: "admin@ssrf-demo.com",
+        password: "admin123",
+        role: "admin",
+        bio: "System Administrator",
+      },
+      {
+        name: "John Doe",
+        email: "john@ssrf-demo.com",
+        password: "user123",
+        role: "user",
+        bio: "Regular user",
+      },
+      {
+        name: "Jane Smith",
+        email: "jane@ssrf-demo.com",
+        password: "user123",
+        role: "moderator",
+        bio: "Content Moderator",
+      },
+      {
+        name: "Bob Johnson",
+        email: "bob@ssrf-demo.com",
+        password: "user123",
+        role: "user",
+        bio: "Developer",
+      },
+    ];
+
+    const createdUsers = await User.insertMany(sampleUsers);
+
+    res.json({
+      success: true,
+      message: `Đã tạo ${createdUsers.length} sample users`,
+      users: createdUsers.map((u) => ({
+        id: u._id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+      })),
+    });
+  } catch (error) {
+    console.error("❌ Lỗi khi tạo sample users:", error.message);
+    res.status(500).json({
+      error: "Lỗi khi tạo sample users",
+      message: error.message,
+    });
+  }
+});
+
+// ========== SOCKET.IO SETUP ==========
+const socketAuth = async (socket, next) => {
+  try {
+    // Thử lấy token từ nhiều nơi
+    const token =
+      socket.handshake.auth?.token ||
+      socket.handshake.headers?.authorization?.replace("Bearer ", "") ||
+      socket.handshake.query?.token;
+
+    if (!token) {
+      console.error("Socket auth: Không có token", {
+        auth: socket.handshake.auth,
+        headers: socket.handshake.headers,
+        query: socket.handshake.query,
+      });
+      return next(new Error("Không có token"));
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const user = await User.findById(decoded.userId).select("-password");
+    if (!user) {
+      console.error("Socket auth: User không tồn tại", decoded.userId);
+      return next(new Error("User không tồn tại"));
+    }
+
+    socket.userId = user._id.toString();
+    socket.user = user;
+    next();
+  } catch (error) {
+    console.error("Socket auth error:", error.message);
+    next(new Error(`Token không hợp lệ: ${error.message}`));
+  }
+};
+
+io.use(socketAuth);
+
+io.on("connection", (socket) => {
+  console.log(`✅ User ${socket.user.name} đã kết nối: ${socket.id}`);
+
+  // Join room với userId để nhận tin nhắn
+  socket.join(socket.userId);
+
+  // Xử lý gửi tin nhắn
+  socket.on("send_message", async (data) => {
+    try {
+      const { receiverId, content, type, fileUrl, fileName } = data;
+
+      if (!receiverId) {
+        return socket.emit("error", { message: "Thiếu receiverId" });
+      }
+
+      // Convert sang ObjectId
+      const senderId = new mongoose.Types.ObjectId(socket.userId);
+      const receiverObjId = new mongoose.Types.ObjectId(receiverId);
+
+      // Tìm hoặc tạo conversation (sắp xếp participants để unique index hoạt động)
+      const participants = [senderId, receiverObjId].sort((a, b) =>
+        a.toString().localeCompare(b.toString())
+      );
+
+      // Tìm conversation với exact match
+      let conversation = await Conversation.findOne({
+        participants: { $eq: participants },
+      });
+
+      // Nếu không tìm thấy, thử tìm với $all (có thể có duplicate cũ)
+      if (!conversation) {
+        const existingConvs = await Conversation.find({
+          participants: { $all: participants, $size: 2 },
+        }).sort({ lastMessageAt: -1 });
+
+        if (existingConvs.length > 0) {
+          conversation = existingConvs[0];
+
+          // Nếu có nhiều hơn 1, merge và xóa duplicate
+          if (existingConvs.length > 1) {
+            const mainConv = existingConvs[0];
+            const duplicateIds = existingConvs.slice(1).map((c) => c._id);
+
+            await Message.updateMany(
+              { conversationId: { $in: duplicateIds } },
+              { conversationId: mainConv._id }
+            );
+
+            await Conversation.deleteMany({ _id: { $in: duplicateIds } });
+          }
+        }
+      }
+
+      if (!conversation) {
+        conversation = new Conversation({
+          participants: participants,
+        });
+        await conversation.save();
+      }
+
+      // Tạo message
+      const message = new Message({
+        conversationId: conversation._id,
+        sender: senderId,
+        receiver: receiverObjId,
+        content: content || "",
+        type: type || "text",
+        fileUrl: fileUrl || "",
+        fileName: fileName || "",
+      });
+      await message.save();
+
+      // Populate sender và receiver để gửi đầy đủ thông tin
+      await message.populate("sender", "name avatar");
+      await message.populate("receiver", "name avatar");
+
+      // Cập nhật conversation
+      conversation.lastMessage = message._id;
+      conversation.lastMessageAt = new Date();
+      await conversation.save();
+
+      // Gửi tin nhắn đến receiver
+      const receiverIdStr = receiverObjId.toString();
+      console.log(`📤 Gửi message đến receiver: ${receiverIdStr}`);
+      console.log(`📤 Message content:`, {
+        id: message._id,
+        content: message.content,
+        sender: senderId.toString(),
+        receiver: receiverIdStr,
+      });
+
+      // Emit đến room của receiver
+      io.to(receiverIdStr).emit("receive_message", {
+        message: message.toObject ? message.toObject() : message,
+        conversation: conversation.toObject
+          ? conversation.toObject()
+          : conversation,
+      });
+
+      // Log số sockets của receiver để debug
+      const receiverSockets = await io.in(receiverIdStr).fetchSockets();
+      console.log(`📤 Số sockets của receiver: ${receiverSockets.length}`);
+
+      // Gửi lại cho sender để confirm
+      socket.emit("message_sent", {
+        message: message.toObject ? message.toObject() : message,
+        conversation: conversation.toObject
+          ? conversation.toObject()
+          : conversation,
+      });
+    } catch (error) {
+      console.error("Lỗi khi gửi tin nhắn:", error);
+      socket.emit("error", { message: "Không thể gửi tin nhắn" });
+    }
+  });
+
+  // Xử lý đánh dấu đã đọc
+  socket.on("mark_read", async (data) => {
+    try {
+      const { conversationId } = data;
+      await Message.updateMany(
+        {
+          conversationId: conversationId,
+          receiver: socket.userId,
+          read: false,
+        },
+        { read: true }
+      );
+
+      // Thông báo cho sender
+      const conversation = await Conversation.findById(conversationId);
+      if (conversation) {
+        const otherUserId = conversation.participants.find(
+          (id) => id.toString() !== socket.userId
+        );
+        if (otherUserId) {
+          io.to(otherUserId.toString()).emit("messages_read", {
+            conversationId: conversationId,
+            userId: socket.userId,
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Lỗi khi đánh dấu đã đọc:", error);
+    }
+  });
+
+  // Xử lý typing indicator
+  socket.on("typing", (data) => {
+    const { receiverId, isTyping } = data;
+    socket.to(receiverId).emit("user_typing", {
+      userId: socket.userId,
+      userName: socket.user.name,
+      isTyping: isTyping,
+    });
+  });
+
+  socket.on("disconnect", () => {
+    console.log(`❌ User ${socket.user.name} đã ngắt kết nối: ${socket.id}`);
+  });
+});
+
+server.listen(PORT, () => {
   console.log(`🚀 Server đang chạy tại http://localhost:${PORT}`);
-  console.log(`📝 API endpoints:`);
-  console.log(`   - POST /api/vulnerable/preview (⚠️ Vulnerable)`);
-  console.log(`   - POST /api/secure/preview (✅ Secure)`);
-  console.log(`   - GET  /api/metadata/:path (Test metadata endpoint)`);
 });

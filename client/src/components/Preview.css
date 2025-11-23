@@ -124,6 +124,23 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
+.example-level {
+  font-size: 0.75rem;
+  opacity: 0.8;
+  margin-left: 4px;
+}
+
+.examples-hint {
+  margin-top: 12px;
+  padding: 12px;
+  background: #e7f3ff;
+  border-radius: 6px;
+  border-left: 3px solid #2196f3;
+  font-size: 0.9rem;
+  color: #1976d2;
+  line-height: 1.6;
+}
+
 .loading {
   text-align: center;
   padding: 40px;

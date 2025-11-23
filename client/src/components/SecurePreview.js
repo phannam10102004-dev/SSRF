@@ -14,12 +14,12 @@ const SECURE_EXAMPLES = [
     description: "Domain công khai",
   },
   {
-    name: "Localhost (Blocked)",
+    name: "Localhost (Bị chặn)",
     url: "http://localhost:3001/api/health",
     description: "Sẽ bị chặn vì là internal IP",
   },
   {
-    name: "Private IP (Blocked)",
+    name: "IP riêng (Bị chặn)",
     url: "http://192.168.1.1",
     description: "Sẽ bị chặn vì là private IP range",
   },
@@ -142,7 +142,7 @@ function SecurePreview() {
           <div className="preview-card secure">
             {preview.metadata.image && (
               <div className="preview-image">
-                <img src={preview.metadata.image} alt="Preview" />
+                <img src={preview.metadata.image} alt="Xem trước" />
               </div>
             )}
             <div className="preview-content">

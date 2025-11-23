@@ -1,0 +1,176 @@
+.messages-icon-container {
+  position: relative;
+  z-index: 100010; /* Tạo stacking context riêng, cao hơn chat windows */
+}
+
+.messages-icon-btn {
+  position: relative;
+  cursor: pointer;
+  font-size: 20px;
+  padding: 8px;
+  border-radius: 50%;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.messages-icon-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.messages-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: #e41e3f;
+  color: white;
+  font-size: 11px;
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 10px;
+  min-width: 18px;
+  text-align: center;
+}
+
+.messages-dropdown {
+  position: fixed !important; /* Dùng fixed để không bị giới hạn bởi stacking context */
+  width: 360px;
+  max-height: 500px;
+  background: white !important;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 999999 !important; /* Z-index cực cao để luôn hiển thị trên cùng */
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto !important; /* Đảm bảo có thể tương tác */
+  isolation: isolate; /* Tạo stacking context mới */
+}
+
+.messages-header {
+  padding: 16px;
+  border-bottom: 1px solid #e4e6eb;
+}
+
+.messages-header h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.messages-list {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 400px;
+}
+
+.empty-messages {
+  padding: 40px 20px;
+  text-align: center;
+  color: #999;
+}
+
+.conversation-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: background 0.2s;
+  position: relative;
+}
+
+.conversation-item:hover {
+  background: #f0f2f5;
+}
+
+.conversation-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e4e6eb;
+  overflow: hidden;
+}
+
+.conversation-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.conversation-avatar span {
+  font-size: 16px;
+  font-weight: bold;
+  color: #666;
+}
+
+.conversation-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.conversation-name {
+  font-weight: 600;
+  font-size: 15px;
+  color: #050505;
+  margin-bottom: 4px;
+}
+
+.conversation-preview {
+  font-size: 13px;
+  color: #65676b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-unread {
+  background: #0084ff;
+  color: white;
+  font-size: 12px;
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 10px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.chat-windows-container {
+  position: fixed;
+  bottom: 0;
+  right: 20px; /* Giảm khoảng cách bên phải */
+  z-index: 100 !important; /* Thấp hơn messages dropdown (999999) */
+  pointer-events: none;
+  display: flex;
+  flex-direction: row-reverse; /* Xếp từ phải sang trái */
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.chat-window-wrapper {
+  position: relative;
+  pointer-events: auto;
+  flex-shrink: 0;
+}
+
+/* Scrollbar */
+.messages-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.messages-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.messages-list::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
+}
+
+.messages-list::-webkit-scrollbar-thumb:hover {
+  background: #999;
+}
