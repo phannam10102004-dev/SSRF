@@ -36,9 +36,64 @@ const postSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    commentDetails: {
+      type: [
+        {
+          _id: {
+            type: mongoose.Schema.Types.ObjectId,
+            default: () => new mongoose.Types.ObjectId(),
+          },
+          user: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            required: true,
+          },
+          content: {
+            type: String,
+            required: true,
+            trim: true,
+          },
+          createdAt: {
+            type: Date,
+            default: Date.now,
+          },
+        },
+      ],
+      default: [],
+    },
     shares: {
       type: Number,
       default: 0,
+    },
+    sharedFrom: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Post",
+      default: null,
+    },
+    sharedFromAuthorName: {
+      type: String,
+      default: "",
+    },
+    reactions: {
+      type: [
+        {
+          user: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            required: true,
+          },
+          type: {
+            type: String,
+            enum: ["like", "love", "haha", "wow", "sad", "angry"],
+            required: true,
+          },
+          createdAt: {
+            type: Date,
+            default: Date.now,
+          },
+        },
+      ],
+      default: [],
     },
     isVulnerable: {
       type: Boolean,

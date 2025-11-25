@@ -106,6 +106,10 @@ function Notifications({
         return <UserIcon size={20} />;
       case "friend_accepted":
         return <UserIcon size={20} />;
+      case "post_reaction":
+        return <span style={{ fontSize: "18px" }}>❤️</span>;
+      case "post_comment":
+        return <span style={{ fontSize: "18px" }}>💬</span>;
       default:
         return <BellIcon size={20} />;
     }
@@ -159,6 +163,19 @@ function Notifications({
                   onClick={() => {
                     if (!notification.read) {
                       handleMarkAsRead(notification._id);
+                    }
+
+                    if (
+                      (notification.type === "post_reaction" ||
+                        notification.type === "post_comment") &&
+                      notification.relatedId
+                    ) {
+                      onNotificationClick?.({
+                        type: notification.type,
+                        postId: notification.relatedId,
+                      });
+                      setShowDropdown(false);
+                      return;
                     }
 
                     // Nếu có from (user ID), chuyển đến profile của người đó

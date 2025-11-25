@@ -4,6 +4,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { UserIcon, SettingsIcon } from "./Icons";
 import "./ProfilePage.css";
 import MessagesList from "./MessagesList";
+import Post from "./Post";
 
 const API_BASE_URL = "http://localhost:3001/api";
 
@@ -41,7 +42,19 @@ function ProfilePage({ userId: propUserId, reloadKey = 0 }) {
 
       const userData = profileResponse.data.user;
       setProfileUser(userData);
-      setPosts(postsResponse.data.posts || []);
+
+      const formattedPosts = (postsResponse.data.posts || []).map((post) => ({
+        ...post,
+        id: post._id,
+        timestamp: post.createdAt,
+        reactions: post.reactions || [],
+        commentDetails: post.commentDetails || [],
+        comments:
+          typeof post.comments === "number"
+            ? post.comments
+            : post.commentDetails?.length || 0,
+      }));
+      setPosts(formattedPosts);
       setEditForm({
         name: userData.name,
         bio: userData.bio || "",
@@ -474,25 +487,12 @@ function ProfilePage({ userId: propUserId, reloadKey = 0 }) {
         ) : (
           <div className="profile-posts">
             {posts.map((post) => (
-              <div key={post._id} className="profile-post-card">
-                <div className="post-preview">
-                  {post.linkPreview?.metadata?.image && (
-                    <img
-                      src={post.linkPreview.metadata.image}
-                      alt="Preview"
-                      className="post-preview-img"
-                    />
-                  )}
-                  <div className="post-preview-content">
-                    <div className="post-preview-title">
-                      {post.linkPreview?.metadata?.title || post.url}
-                    </div>
-                    <div className="post-preview-time">
-                      {new Date(post.createdAt).toLocaleDateString("vi-VN")}
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <Post
+                key={post.id || post._id}
+                post={post}
+                isVulnerable={post.isVulnerable}
+                onViewProfile={() => {}}
+              />
             ))}
           </div>
         )}

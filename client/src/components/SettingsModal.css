@@ -1,0 +1,99 @@
+.settings-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.settings-modal {
+  width: 100%;
+  max-width: 420px;
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--divider);
+  overflow: hidden;
+}
+
+.settings-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.settings-modal-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.settings-modal-header button {
+  background: transparent;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.settings-modal-body {
+  padding: 20px;
+}
+
+.settings-modal-body h4 {
+  margin-top: 0;
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-form label {
+  font-size: 0.9rem;
+  color: var(--text-main);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-form input {
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--divider);
+  background: var(--bg-input);
+}
+
+.settings-form button {
+  margin-top: 8px;
+  padding: 10px 16px;
+  background: var(--primary-gradient);
+  border: none;
+  border-radius: var(--radius-lg);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-form button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.settings-error {
+  color: #dc2626;
+  font-size: 0.85rem;
+}
+
+.settings-success {
+  color: var(--success);
+  font-size: 0.85rem;
+}
+

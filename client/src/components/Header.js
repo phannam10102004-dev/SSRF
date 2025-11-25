@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import axios from "axios";
 import "./Header.css";
 import {
   LinkIcon,
@@ -13,6 +14,9 @@ import {
 } from "./Icons";
 import Notifications from "./Notifications";
 import MessagesList from "./MessagesList";
+import SettingsModal from "./SettingsModal";
+
+const API_BASE_URL = "http://localhost:3001/api";
 
 function Header({
   user,
@@ -27,6 +31,13 @@ function Header({
   const [showMenu, setShowMenu] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState(null); // 'notifications' | 'messages' | null
   const menuRef = useRef(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const searchTimeoutRef = useRef(null);
+  const searchContainerRef = useRef(null);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -39,6 +50,54 @@ function Header({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        searchContainerRef.current &&
+        !searchContainerRef.current.contains(event.target)
+      ) {
+        setShowSearchResults(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (!searchTerm || !searchTerm.trim()) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      setSearchLoading(false);
+      return;
+    }
+
+    searchTimeoutRef.current = setTimeout(async () => {
+      try {
+        setSearchLoading(true);
+        const response = await axios.get(`${API_BASE_URL}/users`, {
+          params: { search: searchTerm.trim() },
+        });
+        setSearchResults(response.data.users || []);
+        setShowSearchResults(true);
+      } catch (error) {
+        console.error("Lỗi tìm kiếm user:", error);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 350);
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchTerm]);
+
   const getInitials = (name) => {
     return name
       .split(" ")
@@ -48,15 +107,66 @@ function Header({
       .slice(0, 2);
   };
 
+  const handleSelectUser = (userId) => {
+    if (!userId) return;
+    onViewProfile?.(userId);
+    setSearchTerm("");
+    setSearchResults([]);
+    setShowSearchResults(false);
+  };
+
   return (
     <header className="main-header">
       <div className="header-left">
         <div className="fb-logo">
           <LinkIcon size={24} color="white" />
         </div>
-        <div className="header-search">
+        <div className="header-search" ref={searchContainerRef}>
           <SearchIcon size={18} />
-          <input type="text" placeholder="Tìm kiếm trên Social Network" />
+          <input
+            type="text"
+            placeholder="Tìm kiếm bạn bè theo tên..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            onFocus={() => {
+              if (searchResults.length > 0) {
+                setShowSearchResults(true);
+              }
+            }}
+          />
+          {showSearchResults && (
+            <div className="search-results-dropdown">
+              {searchLoading ? (
+                <div className="search-result loading">Đang tìm kiếm...</div>
+              ) : searchResults.length === 0 ? (
+                <div className="search-result empty">
+                  Không tìm thấy người dùng
+                </div>
+              ) : (
+                searchResults.map((item) => (
+                  <button
+                    key={item._id}
+                    className="search-result"
+                    onClick={() => handleSelectUser(item._id)}
+                  >
+                    <div className="search-result-avatar">
+                      {item.avatar ? (
+                        <img src={item.avatar} alt={item.name} />
+                      ) : (
+                        <span>{getInitials(item.name)}</span>
+                      )}
+                    </div>
+                    <div className="search-result-info">
+                      <span className="search-result-name">{item.name}</span>
+                      <span className="search-result-meta">
+                        {item.email || "Không có email"}
+                      </span>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -131,7 +241,13 @@ function Header({
                 <UserIcon size={20} />
                 <span>Xem hồ sơ</span>
               </div>
-              <div className="dropdown-item">
+              <div
+                className="dropdown-item"
+                onClick={() => {
+                  setShowSettingsModal(true);
+                  setShowMenu(false);
+                }}
+              >
                 <SettingsIcon size={20} />
                 <span>Cài đặt</span>
               </div>
@@ -148,6 +264,10 @@ function Header({
           )}
         </div>
       </div>
+      <SettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+      />
     </header>
   );
 }

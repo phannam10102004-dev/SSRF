@@ -31,6 +31,7 @@ function AppContent() {
   const [profileReloadKey, setProfileReloadKey] = useState(0);
   const [openChats, setOpenChats] = useState([]);
   const [messagesSocket, setMessagesSocket] = useState(null);
+  const [focusedPostId, setFocusedPostId] = useState(null);
 
   const handleHeaderTabChange = (tab) => {
     setHeaderTab(tab);
@@ -79,9 +80,25 @@ function AppContent() {
         onLogout={logout}
         onTabChange={handleHeaderTabChange}
         activeTab={headerTab}
-        onNotificationClick={(page) => {
-          if (page === "friends") {
-            navigate("/friends");
+        onNotificationClick={(payload) => {
+          if (typeof payload === "string") {
+            if (payload === "friends") {
+              navigate("/friends");
+            }
+            return;
+          }
+
+          if (
+            (payload?.type === "post_reaction" ||
+              payload?.type === "post_comment") &&
+            payload?.postId
+          ) {
+            setHeaderTab("home");
+            setFocusedPostId(payload.postId.toString());
+            if (location.pathname !== "/") {
+              navigate("/");
+            }
+            return;
           }
         }}
         onViewProfile={handleViewProfile}
@@ -143,11 +160,15 @@ function AppContent() {
                       <SocialFeed
                         isVulnerable={true}
                         onViewProfile={handleViewProfile}
+                        focusPostId={focusedPostId}
+                        onFocusConsumed={() => setFocusedPostId(null)}
                       />
                     ) : (
                       <SocialFeed
                         isVulnerable={false}
                         onViewProfile={handleViewProfile}
+                        focusPostId={focusedPostId}
+                        onFocusConsumed={() => setFocusedPostId(null)}
                       />
                     )}
                   </div>

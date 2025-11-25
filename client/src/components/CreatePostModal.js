@@ -176,10 +176,18 @@ function CreatePostModal({ isOpen, onClose, onPostCreated, isVulnerable }) {
         },
       });
 
+      const createdPost = response.data.post;
       const newPost = {
-        ...response.data.post,
-        id: response.data.post._id,
-        timestamp: response.data.post.createdAt,
+        ...createdPost,
+        id: createdPost._id,
+        timestamp: createdPost.createdAt,
+        reactions: createdPost.reactions || [],
+        commentDetails: createdPost.commentDetails || [],
+        comments:
+          typeof createdPost.comments === "number"
+            ? createdPost.comments
+            : createdPost.commentDetails?.length || 0,
+        shares: createdPost.shares || 0,
       };
 
       onPostCreated(newPost);

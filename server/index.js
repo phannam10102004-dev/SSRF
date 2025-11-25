@@ -43,6 +43,15 @@ const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://localhost:27017/ssrf-demo";
 const JWT_SECRET =
   process.env.JWT_SECRET || "your-secret-key-change-in-production";
+const REACTION_TYPES = ["like", "love", "haha", "wow", "sad", "angry"];
+const REACTION_LABELS = {
+  like: "cảm xúc Thích",
+  love: "cảm xúc Yêu thích",
+  haha: "cảm xúc Haha",
+  wow: "cảm xúc Wow",
+  sad: "cảm xúc Buồn",
+  angry: "cảm xúc Phẫn nộ",
+};
 
 // Kết nối MongoDB
 mongoose
@@ -779,6 +788,7 @@ app.get("/api/posts", authenticateToken, async (req, res) => {
 
     const posts = await Post.find(query)
       .populate("author", "name email avatar")
+      .populate("commentDetails.user", "name avatar")
       .sort({ createdAt: -1 })
       .limit(50)
       .lean();
@@ -791,6 +801,308 @@ app.get("/api/posts", authenticateToken, async (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: "Lỗi khi lấy posts",
+      message: error.message,
+    });
+  }
+});
+
+// Xóa post
+app.delete("/api/posts/:postId", authenticateToken, async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const post = await Post.findById(postId);
+
+    if (!post) {
+      return res.status(404).json({ error: "Post không tồn tại" });
+    }
+
+    const authorId = post.author?.toString();
+    const requesterId = req.user._id.toString();
+    const isAdmin = req.user.role === "admin";
+
+    if (authorId !== requesterId && !isAdmin) {
+      return res
+        .status(403)
+        .json({ error: "Bạn không có quyền xóa bài viết này" });
+    }
+
+    await Post.findByIdAndDelete(postId);
+    res.json({ success: true, message: "Đã xóa bài viết" });
+  } catch (error) {
+    console.error("❌ Lỗi khi xóa post:", error);
+    res.status(500).json({
+      error: "Không thể xóa bài viết",
+      message: error.message,
+    });
+  }
+});
+
+// Chia sẻ post (tăng share count)
+app.post("/api/posts/:postId/share", authenticateToken, async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const originalPost = await Post.findById(postId).populate(
+      "author",
+      "name email avatar"
+    );
+
+    if (!originalPost) {
+      return res.status(404).json({ error: "Post không tồn tại" });
+    }
+
+    const sharedPost = new Post({
+      content: originalPost.content,
+      url: originalPost.url,
+      linkPreview: originalPost.linkPreview,
+      images: originalPost.images,
+      isVulnerable: originalPost.isVulnerable,
+      author: req.user._id,
+      authorName: req.user.name,
+      sharedFrom: originalPost._id,
+      sharedFromAuthorName:
+        originalPost.author?.name || originalPost.authorName || "Người dùng",
+    });
+
+    await sharedPost.save();
+    await sharedPost.populate("author", "name email avatar");
+
+    originalPost.shares = (originalPost.shares || 0) + 1;
+    await originalPost.save();
+
+    res.json({
+      success: true,
+      shares: originalPost.shares,
+      originalPostId: originalPost._id,
+      sharedPost,
+      message: "Đã chia sẻ bài viết",
+    });
+  } catch (error) {
+    console.error("❌ Lỗi khi chia sẻ post:", error);
+    res.status(500).json({
+      error: "Không thể chia sẻ bài viết",
+      message: error.message,
+    });
+  }
+});
+
+// Thêm/Gỡ/Đổi reaction cho post
+app.post(
+  "/api/posts/:postId/reactions",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { postId } = req.params;
+      const { type } = req.body;
+
+      if (!type || !REACTION_TYPES.includes(type)) {
+        return res.status(400).json({
+          error: "Loại reaction không hợp lệ",
+          allowed: REACTION_TYPES,
+        });
+      }
+
+      const post = await Post.findById(postId).populate(
+        "author",
+        "name email avatar"
+      );
+      if (!post) {
+        return res.status(404).json({ error: "Post không tồn tại" });
+      }
+
+      const currentUserId = req.user._id.toString();
+      const existingIndex = post.reactions.findIndex(
+        (reaction) => reaction.user.toString() === currentUserId
+      );
+
+      const isNewReaction = existingIndex === -1;
+
+      if (isNewReaction) {
+        post.reactions.push({ user: req.user._id, type });
+      } else if (post.reactions[existingIndex].type === type) {
+        post.reactions.splice(existingIndex, 1);
+      } else {
+        post.reactions[existingIndex].type = type;
+        post.reactions[existingIndex].createdAt = new Date();
+      }
+
+      await post.save();
+
+      if (
+        isNewReaction &&
+        post.author &&
+        post.author._id &&
+        post.author._id.toString() !== currentUserId
+      ) {
+        const alreadyNotified = await Notification.exists({
+          user: post.author._id,
+          from: req.user._id,
+          type: "post_reaction",
+          relatedId: post._id,
+        });
+
+        if (!alreadyNotified) {
+          await Notification.create({
+            user: post.author._id,
+            from: req.user._id,
+            type: "post_reaction",
+            relatedId: post._id,
+            message: `${req.user.name} đã thả ${
+              REACTION_LABELS[type] || "cảm xúc"
+            } vào bài viết của bạn`,
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        post,
+      });
+    } catch (error) {
+      console.error("❌ Lỗi khi cập nhật reaction:", error);
+      res.status(500).json({
+        error: "Không thể cập nhật reaction",
+        message: error.message,
+      });
+    }
+  }
+);
+
+// Xóa reaction của user khỏi post
+app.delete(
+  "/api/posts/:postId/reactions",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { postId } = req.params;
+      const post = await Post.findById(postId).populate(
+        "author",
+        "name email avatar"
+      );
+
+      if (!post) {
+        return res.status(404).json({ error: "Post không tồn tại" });
+      }
+
+      const currentUserId = req.user._id.toString();
+      const nextReactions = post.reactions.filter(
+        (reaction) => reaction.user.toString() !== currentUserId
+      );
+
+      if (nextReactions.length === post.reactions.length) {
+        return res.status(200).json({
+          success: true,
+          message: "User chưa reaction post này",
+          post,
+        });
+      }
+
+      post.reactions = nextReactions;
+      await post.save();
+
+      res.json({
+        success: true,
+        post,
+      });
+    } catch (error) {
+      console.error("❌ Lỗi khi xóa reaction:", error);
+      res.status(500).json({
+        error: "Không thể xóa reaction",
+        message: error.message,
+      });
+    }
+  }
+);
+
+// Lấy danh sách comments của post
+app.get("/api/posts/:postId/comments", authenticateToken, async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const post = await Post.findById(postId)
+      .populate("commentDetails.user", "name avatar")
+      .lean();
+
+    if (!post) {
+      return res.status(404).json({ error: "Post không tồn tại" });
+    }
+
+    res.json({
+      success: true,
+      comments: post.commentDetails || [],
+      total: post.commentDetails?.length || 0,
+    });
+  } catch (error) {
+    console.error("❌ Lỗi khi lấy comments:", error);
+    res.status(500).json({
+      error: "Không thể lấy comments",
+      message: error.message,
+    });
+  }
+});
+
+// Thêm comment vào post
+app.post("/api/posts/:postId/comments", authenticateToken, async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const { content } = req.body;
+
+    if (!content || !content.trim()) {
+      return res.status(400).json({ error: "Nội dung bình luận không hợp lệ" });
+    }
+
+    if (content.length > 500) {
+      return res.status(400).json({ error: "Bình luận tối đa 500 ký tự" });
+    }
+
+    const post = await Post.findById(postId).populate(
+      "author",
+      "name email avatar"
+    );
+    if (!post) {
+      return res.status(404).json({ error: "Post không tồn tại" });
+    }
+
+    const newComment = {
+      user: req.user._id,
+      content: content.trim(),
+      createdAt: new Date(),
+    };
+
+    post.commentDetails.push(newComment);
+    post.comments = (post.comments || 0) + 1;
+
+    await post.save();
+    await post.populate("commentDetails.user", "name avatar");
+
+    const createdComment = post.commentDetails[post.commentDetails.length - 1];
+    const formattedComment = createdComment?.toObject
+      ? createdComment.toObject()
+      : createdComment;
+
+    if (
+      post.author &&
+      post.author._id &&
+      post.author._id.toString() !== req.user._id.toString()
+    ) {
+      await Notification.create({
+        user: post.author._id,
+        from: req.user._id,
+        type: "post_comment",
+        relatedId: post._id,
+        message: `${req.user.name} đã bình luận: "${content
+          .trim()
+          .slice(0, 80)}"`,
+      });
+    }
+
+    res.json({
+      success: true,
+      comment: formattedComment,
+      total: post.comments,
+    });
+  } catch (error) {
+    console.error("❌ Lỗi khi thêm comment:", error);
+    res.status(500).json({
+      error: "Không thể thêm bình luận",
       message: error.message,
     });
   }
@@ -838,9 +1150,16 @@ app.post("/api/users", async (req, res) => {
 // Lấy danh sách users (public - không có password)
 app.get("/api/users", async (req, res) => {
   try {
-    const users = await User.find({})
+    const { search } = req.query;
+    const query = {};
+
+    if (search && search.trim()) {
+      query.name = { $regex: search.trim(), $options: "i" };
+    }
+
+    const users = await User.find(query)
       .select("name email role avatar bio createdAt")
-      .limit(20)
+      .limit(search ? 10 : 20)
       .lean();
 
     res.json({
@@ -1835,6 +2154,50 @@ app.put("/api/users/profile", authenticateToken, async (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: "Lỗi khi cập nhật profile",
+      message: error.message,
+    });
+  }
+});
+
+// Đổi mật khẩu
+app.post("/api/users/change-password", authenticateToken, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res
+        .status(400)
+        .json({ error: "Vui lòng nhập đủ mật khẩu hiện tại và mật khẩu mới" });
+    }
+
+    if (newPassword.length < 6) {
+      return res
+        .status(400)
+        .json({ error: "Mật khẩu mới phải có ít nhất 6 ký tự" });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ error: "User không tồn tại" });
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ error: "Mật khẩu hiện tại không đúng" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "Đã đổi mật khẩu thành công",
+    });
+  } catch (error) {
+    console.error("❌ Lỗi khi đổi mật khẩu:", error);
+    res.status(500).json({
+      error: "Không thể đổi mật khẩu",
       message: error.message,
     });
   }

@@ -23,7 +23,10 @@
 }
 
 .friend-suggestions-icon {
-  font-size: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #65676b;
 }
 
 .friend-suggestions-more {
@@ -154,7 +157,10 @@
 }
 
 .mutual-friends-icon {
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #65676b;
 }
 
 .friend-suggestion-add-btn {

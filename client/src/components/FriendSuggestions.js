@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { useAuth } from "../contexts/AuthContext";
 import "./FriendSuggestions.css";
+import { UsersIcon, UserPlusIcon } from "./Icons";
 
 const API_BASE_URL = "http://localhost:3001/api";
 
@@ -154,7 +155,9 @@ function FriendSuggestions({ onViewProfile }) {
     <div className="friend-suggestions-container">
       <div className="friend-suggestions-header">
         <div className="friend-suggestions-title">
-          <span className="friend-suggestions-icon">👥</span>
+          <span className="friend-suggestions-icon">
+            <UsersIcon size={18} color="var(--text-muted)" />
+          </span>
           <span>Những người bạn có thể biết</span>
         </div>
         <button className="friend-suggestions-more">⋯</button>
@@ -187,7 +190,9 @@ function FriendSuggestions({ onViewProfile }) {
             <div className="friend-suggestion-name">{suggestion.name}</div>
             {suggestion.mutualFriendsCount > 0 && (
               <div className="friend-suggestion-mutual">
-                <span className="mutual-friends-icon">👥</span>
+                <span className="mutual-friends-icon">
+                  <UsersIcon size={14} color="var(--text-muted)" />
+                </span>
                 <span>{suggestion.mutualFriendsCount} bạn chung</span>
               </div>
             )}
@@ -203,7 +208,8 @@ function FriendSuggestions({ onViewProfile }) {
                 className="friend-suggestion-add-btn"
                 onClick={() => handleAddFriend(suggestion._id)}
               >
-                <span>👤</span> Thêm bạn bè
+                <UserPlusIcon size={16} color="#fff" />
+                Thêm bạn bè
               </button>
             )}
           </div>
