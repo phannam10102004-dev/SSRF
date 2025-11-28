@@ -2736,10 +2736,14 @@ io.on("connection", (socket) => {
   // Xử lý gửi tin nhắn
   socket.on("send_message", async (data) => {
     try {
-      const { receiverId, content, type, fileUrl, fileName } = data;
+      const { receiverId, content, type, fileUrl, fileName, fileSize } = data;
 
       if (!receiverId) {
         return socket.emit("error", { message: "Thiếu receiverId" });
+      }
+
+      if (!mongoose.Types.ObjectId.isValid(receiverId)) {
+        return socket.emit("error", { message: "ReceiverId không hợp lệ" });
       }
 
       // Convert sang ObjectId
@@ -2841,7 +2845,7 @@ io.on("connection", (socket) => {
       });
     } catch (error) {
       console.error("Lỗi khi gửi tin nhắn:", error);
-      socket.emit("error", { message: "Không thể gửi tin nhắn" });
+      socket.emit("error", { message: "Không thể gửi tin nhắn: " + error.message });
     }
   });
 
