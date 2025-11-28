@@ -3,8 +3,9 @@ import axios from "axios";
 import { useAuth } from "../contexts/AuthContext";
 import "./FriendSuggestions.css";
 import { UsersIcon, UserPlusIcon } from "./Icons";
+import { getBackendUrl } from "../util";
 
-const API_BASE_URL = "http://localhost:3001/api";
+const API_BASE_URL = `${getBackendUrl()}/api`;
 
 function FriendSuggestions({ onViewProfile }) {
   const { user } = useAuth();

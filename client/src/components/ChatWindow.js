@@ -3,8 +3,9 @@ import axios from "axios";
 import { io } from "socket.io-client";
 import { useAuth } from "../contexts/AuthContext";
 import "./ChatWindow.css";
+import { getBackendUrl } from "../util";
 
-const API_BASE_URL = "http://localhost:3001/api";
+const API_BASE_URL = `${getBackendUrl()}/api`;
 
 function ChatWindow({ userId, userName, userAvatar, onClose, socket }) {
   const { user: currentUser } = useAuth();

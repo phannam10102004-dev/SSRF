@@ -4,8 +4,10 @@ import { useAuth } from "../contexts/AuthContext";
 import "./SocialMedia.css";
 import { LikeIcon, CommentBubbleIcon, ShareIcon, MoreIcon } from "./Icons";
 import CreatePostModal from "./CreatePostModal";
+import { getBackendUrl } from "../util";
 
-const API_BASE_URL = "http://localhost:3001/api";
+
+const API_BASE_URL = `${getBackendUrl()}/api`;
 const REACTION_OPTIONS = [
   { type: "like", emoji: "👍", label: "Thích" },
   { type: "love", emoji: "❤️", label: "Yêu thích" },

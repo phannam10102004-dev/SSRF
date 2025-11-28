@@ -3,8 +3,9 @@ import axios from "axios";
 import "./SettingsModal.css";
 
 import { EyeIcon, EyeOffIcon } from "./Icons";
+import { getBackendUrl } from "../util";
 
-const API_BASE_URL = "http://localhost:3001/api";
+const API_BASE_URL = `${getBackendUrl()}/api`;
 
 function SettingsModal({ isOpen, onClose }) {
   const [currentPassword, setCurrentPassword] = useState("");
@@ -13,7 +14,7 @@ function SettingsModal({ isOpen, onClose }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  
+
   // Password visibility states
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -72,7 +73,11 @@ function SettingsModal({ isOpen, onClose }) {
                   className="password-toggle-btn"
                   onClick={() => setShowCurrentPassword(!showCurrentPassword)}
                 >
-                  {showCurrentPassword ? <EyeOffIcon size={20} /> : <EyeIcon size={20} />}
+                  {showCurrentPassword ? (
+                    <EyeOffIcon size={20} />
+                  ) : (
+                    <EyeIcon size={20} />
+                  )}
                 </button>
               </div>
             </label>
@@ -91,7 +96,11 @@ function SettingsModal({ isOpen, onClose }) {
                   className="password-toggle-btn"
                   onClick={() => setShowNewPassword(!showNewPassword)}
                 >
-                  {showNewPassword ? <EyeOffIcon size={20} /> : <EyeIcon size={20} />}
+                  {showNewPassword ? (
+                    <EyeOffIcon size={20} />
+                  ) : (
+                    <EyeIcon size={20} />
+                  )}
                 </button>
               </div>
             </label>
@@ -110,7 +119,11 @@ function SettingsModal({ isOpen, onClose }) {
                   className="password-toggle-btn"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                 >
-                  {showConfirmPassword ? <EyeOffIcon size={20} /> : <EyeIcon size={20} />}
+                  {showConfirmPassword ? (
+                    <EyeOffIcon size={20} />
+                  ) : (
+                    <EyeIcon size={20} />
+                  )}
                 </button>
               </div>
             </label>
@@ -132,4 +145,3 @@ function SettingsModal({ isOpen, onClose }) {
 }
 
 export default SettingsModal;
-

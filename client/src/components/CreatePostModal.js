@@ -3,8 +3,9 @@ import ReactDOM from "react-dom";
 import axios from "axios";
 import { useAuth } from "../contexts/AuthContext";
 import "./CreatePostModal.css";
+import { getBackendUrl } from "../util";
 
-const API_BASE_URL = "http://localhost:3001/api";
+const API_BASE_URL = `${getBackendUrl()}/api`;
 
 function CreatePostModal({
   isOpen,
@@ -31,7 +32,9 @@ function CreatePostModal({
         // Reconstruct content: if there's a URL but it's not in content (because it was stripped), add it back
         let initialContent = postToEdit.content || "";
         if (postToEdit.url && !initialContent.includes(postToEdit.url)) {
-          initialContent = initialContent ? `${initialContent} ${postToEdit.url}` : postToEdit.url;
+          initialContent = initialContent
+            ? `${initialContent} ${postToEdit.url}`
+            : postToEdit.url;
         }
         setContent(initialContent);
         setLinkPreview(postToEdit.linkPreview || null);
@@ -39,7 +42,7 @@ function CreatePostModal({
         // For now, we won't load existing images into the upload preview
         // because they are URLs, not File objects.
         // We'll focus on editing content and link preview.
-        setImages([]); 
+        setImages([]);
       } else {
         setContent("");
         setImages([]);
@@ -67,14 +70,14 @@ function CreatePostModal({
           const detectedUrl = matches[0];
           // Nếu đang edit và link preview đã có và khớp URL thì không fetch lại
           if (postToEdit && linkPreview && linkPreview.url === detectedUrl) {
-             return;
+            return;
           }
           fetchLinkPreview(detectedUrl);
         } else if (!postToEdit) {
-           // Chỉ clear nếu không phải đang edit (để tránh mất preview cũ nếu user xóa link)
-           // Tuy nhiên, logic chuẩn là nếu xóa link thì preview cũng nên mất hoặc hỏi user.
-           // Để đơn giản, nếu không còn link thì clear preview
-           setLinkPreview(null);
+          // Chỉ clear nếu không phải đang edit (để tránh mất preview cũ nếu user xóa link)
+          // Tuy nhiên, logic chuẩn là nếu xóa link thì preview cũng nên mất hoặc hỏi user.
+          // Để đơn giản, nếu không còn link thì clear preview
+          setLinkPreview(null);
         }
       } else {
         setLinkPreview(null);
@@ -87,8 +90,6 @@ function CreatePostModal({
       }
     };
   }, [content, postToEdit]);
-
-
 
   const fetchLinkPreview = async (linkUrl) => {
     if (!linkUrl || linkUrl.trim() === "") {
@@ -218,7 +219,7 @@ function CreatePostModal({
             },
           }
         );
-        
+
         console.log("CreatePostModal: PUT success", response.data);
         if (onPostUpdated) {
           console.log("CreatePostModal: calling onPostUpdated");
@@ -315,7 +316,9 @@ function CreatePostModal({
             <textarea
               ref={textareaRef}
               className="create-post-modal-textarea"
-              placeholder={postToEdit ? "Chỉnh sửa nội dung..." : "Bạn đang nghĩ gì?"}
+              placeholder={
+                postToEdit ? "Chỉnh sửa nội dung..." : "Bạn đang nghĩ gì?"
+              }
               value={content}
               onChange={(e) => setContent(e.target.value)}
               onPaste={(e) => {

@@ -17,8 +17,9 @@ import {
 import Notifications from "./Notifications";
 import MessagesList from "./MessagesList";
 import SettingsModal from "./SettingsModal";
+import { getBackendUrl } from "../util";
 
-const API_BASE_URL = "http://localhost:3001/api";
+const API_BASE_URL = `${getBackendUrl()}/api`;
 
 function Header({
   user,

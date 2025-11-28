@@ -5,8 +5,9 @@ import { UserIcon, SettingsIcon } from "./Icons";
 import "./ProfilePage.css";
 import MessagesList from "./MessagesList";
 import Post from "./Post";
+import { getBackendUrl } from "../util";
 
-const API_BASE_URL = "http://localhost:3001/api";
+const API_BASE_URL = `${getBackendUrl()}/api`;
 
 function ProfilePage({ userId: propUserId, reloadKey = 0 }) {
   const { user: currentUser } = useAuth();

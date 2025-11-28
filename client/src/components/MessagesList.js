@@ -4,11 +4,19 @@ import { io } from "socket.io-client";
 import { useAuth } from "../contexts/AuthContext";
 import ChatWindow from "./ChatWindow";
 import "./MessagesList.css";
+import { getBackendUrl } from "../util";
 
-const API_BASE_URL = "http://localhost:3001/api";
-const SOCKET_URL = "http://localhost:3001";
+const API_BASE_URL = `${getBackendUrl()}/api`;
+const SOCKET_URL = getBackendUrl();
 
-function MessagesList({ onChatsChange, onSocketChange, isOpen, onToggle, onOpenChat, openChats }) {
+function MessagesList({
+  onChatsChange,
+  onSocketChange,
+  isOpen,
+  onToggle,
+  onOpenChat,
+  openChats,
+}) {
   const { user } = useAuth();
   const [socket, setSocket] = useState(null);
   // const [openChats, setOpenChats] = useState([]); // Removed local state
@@ -134,9 +142,9 @@ function MessagesList({ onChatsChange, onSocketChange, isOpen, onToggle, onOpenC
   };
 
   const openChat = (userId, userName, userAvatar) => {
-      if (onOpenChat) {
-          onOpenChat(userId, userName, userAvatar);
-      }
+    if (onOpenChat) {
+      onOpenChat(userId, userName, userAvatar);
+    }
   };
 
   // Expose openChat globally - Keep for backward compatibility if needed

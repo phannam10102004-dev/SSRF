@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import "./AuthPage.css";
 
 import { EyeIcon, EyeOffIcon } from "./Icons";
+import { getBackendUrl } from "../util";
 
 function AuthPage() {
   const { login, register, verifyOtp } = useAuth();
@@ -224,7 +225,7 @@ function AuthPage() {
         <button
           className="google-btn"
           onClick={() => {
-            window.location.href = "http://localhost:3001/api/auth/google";
+            window.location.href = `${getBackendUrl()}/api/auth/google`;
           }}
         >
           <img
