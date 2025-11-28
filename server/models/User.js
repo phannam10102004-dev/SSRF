@@ -14,6 +14,11 @@ const userSchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
     },
+    googleId: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
     password: {
       type: String,
       required: true,
@@ -44,6 +49,29 @@ const userSchema = new mongoose.Schema(
     isActive: {
       type: Boolean,
       default: true,
+    },
+    settings: {
+      language: { type: String, default: "vi", enum: ["vi", "en"] },
+      theme: {
+        type: String,
+        default: "light",
+        enum: ["light", "dark", "system"],
+      },
+      privacy: {
+        type: String,
+        default: "public",
+        enum: ["public", "friends", "only_me"],
+      },
+      notifications: {
+        push: { type: Boolean, default: true },
+        email: { type: Boolean, default: false },
+      },
+    },
+    twoFactor: {
+      enabled: { type: Boolean, default: false },
+      secret: { type: String }, // For TOTP if needed later, or just placeholder
+      otpCode: { type: String },
+      otpExpires: { type: Date },
     },
   },
   {

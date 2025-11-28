@@ -1,11 +1,19 @@
 import React, { useState, useEffect, useRef } from "react";
+import ReactDOM from "react-dom";
 import axios from "axios";
 import { useAuth } from "../contexts/AuthContext";
 import "./CreatePostModal.css";
 
 const API_BASE_URL = "http://localhost:3001/api";
 
-function CreatePostModal({ isOpen, onClose, onPostCreated, isVulnerable }) {
+function CreatePostModal({
+  isOpen,
+  onClose,
+  onPostCreated,
+  isVulnerable,
+  postToEdit = null,
+  onPostUpdated,
+}) {
   const { user } = useAuth();
   const [content, setContent] = useState("");
   const [images, setImages] = useState([]);
@@ -18,10 +26,30 @@ function CreatePostModal({ isOpen, onClose, onPostCreated, isVulnerable }) {
   const previewTimeoutRef = useRef(null);
 
   useEffect(() => {
-    if (isOpen && textareaRef.current) {
-      textareaRef.current.focus();
+    if (isOpen) {
+      if (postToEdit) {
+        // Reconstruct content: if there's a URL but it's not in content (because it was stripped), add it back
+        let initialContent = postToEdit.content || "";
+        if (postToEdit.url && !initialContent.includes(postToEdit.url)) {
+          initialContent = initialContent ? `${initialContent} ${postToEdit.url}` : postToEdit.url;
+        }
+        setContent(initialContent);
+        setLinkPreview(postToEdit.linkPreview || null);
+        // Note: Handling existing images for editing is complex.
+        // For now, we won't load existing images into the upload preview
+        // because they are URLs, not File objects.
+        // We'll focus on editing content and link preview.
+        setImages([]); 
+      } else {
+        setContent("");
+        setImages([]);
+        setLinkPreview(null);
+      }
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, postToEdit]);
 
   // Tự động detect và fetch preview khi có link trong content
   useEffect(() => {
@@ -37,9 +65,16 @@ function CreatePostModal({ isOpen, onClose, onPostCreated, isVulnerable }) {
         const matches = content.match(urlPattern);
         if (matches && matches.length > 0) {
           const detectedUrl = matches[0];
+          // Nếu đang edit và link preview đã có và khớp URL thì không fetch lại
+          if (postToEdit && linkPreview && linkPreview.url === detectedUrl) {
+             return;
+          }
           fetchLinkPreview(detectedUrl);
-        } else {
-          setLinkPreview(null);
+        } else if (!postToEdit) {
+           // Chỉ clear nếu không phải đang edit (để tránh mất preview cũ nếu user xóa link)
+           // Tuy nhiên, logic chuẩn là nếu xóa link thì preview cũng nên mất hoặc hỏi user.
+           // Để đơn giản, nếu không còn link thì clear preview
+           setLinkPreview(null);
         }
       } else {
         setLinkPreview(null);
@@ -51,7 +86,9 @@ function CreatePostModal({ isOpen, onClose, onPostCreated, isVulnerable }) {
         clearTimeout(previewTimeoutRef.current);
       }
     };
-  }, [content]);
+  }, [content, postToEdit]);
+
+
 
   const fetchLinkPreview = async (linkUrl) => {
     if (!linkUrl || linkUrl.trim() === "") {
@@ -169,32 +206,56 @@ function CreatePostModal({ isOpen, onClose, onPostCreated, isVulnerable }) {
         formData.append("images", img.file);
       });
 
-      const response = await axios.post(`${API_BASE_URL}/posts`, formData, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "multipart/form-data",
-        },
-      });
+      let response;
+      if (postToEdit) {
+        response = await axios.put(
+          `${API_BASE_URL}/posts/${postToEdit._id || postToEdit.id}`,
+          formData,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "multipart/form-data",
+            },
+          }
+        );
+        
+        console.log("CreatePostModal: PUT success", response.data);
+        if (onPostUpdated) {
+          console.log("CreatePostModal: calling onPostUpdated");
+          onPostUpdated(response.data.post);
+        } else {
+          console.log("CreatePostModal: onPostUpdated is missing");
+        }
+      } else {
+        response = await axios.post(`${API_BASE_URL}/posts`, formData, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "multipart/form-data",
+          },
+        });
 
-      const createdPost = response.data.post;
-      const newPost = {
-        ...createdPost,
-        id: createdPost._id,
-        timestamp: createdPost.createdAt,
-        reactions: createdPost.reactions || [],
-        commentDetails: createdPost.commentDetails || [],
-        comments:
-          typeof createdPost.comments === "number"
-            ? createdPost.comments
-            : createdPost.commentDetails?.length || 0,
-        shares: createdPost.shares || 0,
-      };
+        const createdPost = response.data.post;
+        const newPost = {
+          ...createdPost,
+          id: createdPost._id,
+          timestamp: createdPost.createdAt,
+          reactions: createdPost.reactions || [],
+          commentDetails: createdPost.commentDetails || [],
 
-      onPostCreated(newPost);
+          comments:
+            typeof createdPost.comments === "number"
+              ? createdPost.comments
+              : createdPost.commentDetails?.length || 0,
+          shares: createdPost.shares || 0,
+        };
+
+        onPostCreated(newPost);
+      }
+
       handleClose();
     } catch (err) {
-      console.error("Lỗi khi tạo post:", err);
-      setError(err.response?.data?.error || "Có lỗi xảy ra khi tạo bài đăng");
+      console.error("Lỗi khi lưu post:", err);
+      setError(err.response?.data?.error || "Có lỗi xảy ra");
     } finally {
       setLoading(false);
     }
@@ -223,11 +284,11 @@ function CreatePostModal({ isOpen, onClose, onPostCreated, isVulnerable }) {
 
   if (!isOpen) return null;
 
-  return (
+  return ReactDOM.createPortal(
     <div className="create-post-modal-overlay" onClick={handleClose}>
       <div className="create-post-modal" onClick={(e) => e.stopPropagation()}>
         <div className="create-post-modal-header">
-          <h2>Tạo bài viết</h2>
+          <h2>{postToEdit ? "Chỉnh sửa bài viết" : "Tạo bài viết"}</h2>
           <button className="create-post-modal-close" onClick={handleClose}>
             ×
           </button>
@@ -254,7 +315,7 @@ function CreatePostModal({ isOpen, onClose, onPostCreated, isVulnerable }) {
             <textarea
               ref={textareaRef}
               className="create-post-modal-textarea"
-              placeholder="Bạn đang nghĩ gì?"
+              placeholder={postToEdit ? "Chỉnh sửa nội dung..." : "Bạn đang nghĩ gì?"}
               value={content}
               onChange={(e) => setContent(e.target.value)}
               onPaste={(e) => {
@@ -374,6 +435,23 @@ function CreatePostModal({ isOpen, onClose, onPostCreated, isVulnerable }) {
 
             <div className="create-post-modal-footer">
               <button
+                type="button"
+                className="create-post-modal-cancel"
+                onClick={handleClose}
+                style={{
+                  marginRight: "10px",
+                  padding: "8px 16px",
+                  borderRadius: "6px",
+                  border: "none",
+                  background: "#e4e6eb",
+                  color: "#050505",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                }}
+              >
+                Hủy
+              </button>
+              <button
                 type="submit"
                 className="create-post-modal-submit"
                 disabled={
@@ -381,13 +459,14 @@ function CreatePostModal({ isOpen, onClose, onPostCreated, isVulnerable }) {
                   (!content.trim() && images.length === 0 && !linkPreview)
                 }
               >
-                {loading ? "Đang đăng..." : "Đăng"}
+                {loading ? "Đang lưu..." : postToEdit ? "Lưu" : "Đăng"}
               </button>
             </div>
           </form>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

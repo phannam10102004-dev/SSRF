@@ -1,10 +1,17 @@
 import React, { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
 import "./AuthPage.css";
 
+import { EyeIcon, EyeOffIcon } from "./Icons";
+
 function AuthPage() {
-  const { login, register } = useAuth();
+  const { login, register, verifyOtp } = useAuth();
+  const navigate = useNavigate();
   const [mode, setMode] = useState("login"); // 'login' or 'register'
+  const [showOtpInput, setShowOtpInput] = useState(false);
+  const [tempToken, setTempToken] = useState(null);
+  const [otp, setOtp] = useState("");
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -12,6 +19,7 @@ function AuthPage() {
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -22,24 +30,101 @@ function AuthPage() {
       let result;
       if (mode === "login") {
         result = await login(formData.email, formData.password);
+        if (result.requireOtp) {
+          setShowOtpInput(true);
+          setTempToken(result.tempToken);
+          setError("");
+        } else if (!result.success) {
+          setError(result.error);
+        } else {
+          navigate("/");
+        }
       } else {
         result = await register(
           formData.name,
           formData.email,
           formData.password
         );
+        if (!result.success) {
+          setError(result.error);
+        } else {
+          navigate("/");
+        }
       }
-
-      if (!result.success) {
-        setError(result.error);
-      }
-      // Nếu thành công, AuthContext sẽ tự động cập nhật user và App.js sẽ redirect
     } catch (err) {
       setError("Đã có lỗi xảy ra. Vui lòng thử lại.");
     } finally {
       setLoading(false);
     }
   };
+
+  const handleOtpSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      const result = await verifyOtp(otp, tempToken);
+      if (result.success) {
+        navigate("/");
+      } else {
+        setError(result.error);
+      }
+    } catch (err) {
+      setError("Lỗi xác thực OTP");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (showOtpInput) {
+    return (
+      <div className="auth-page">
+        <div className="auth-container">
+          <div className="auth-header">
+            <div className="auth-logo">🔒</div>
+            <h2>Xác thực 2 lớp</h2>
+            <p>Nhập mã OTP đã được gửi đến email của bạn</p>
+          </div>
+
+          {error && <div className="error-msg">{error}</div>}
+
+          <form onSubmit={handleOtpSubmit} className="auth-form">
+            <div className="form-group">
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Nhập mã OTP (6 số)"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
+                maxLength={6}
+                required
+                autoFocus
+                style={{ textAlign: "center", letterSpacing: "5px", fontSize: "20px" }}
+              />
+            </div>
+
+            <button type="submit" className="submit-btn" disabled={loading}>
+              {loading ? "Đang xác thực..." : "Xác nhận"}
+            </button>
+
+            <button
+              type="button"
+              className="google-btn"
+              onClick={() => {
+                setShowOtpInput(false);
+                setOtp("");
+                setError("");
+              }}
+              style={{ marginTop: "10px", justifyContent: "center" }}
+            >
+              Quay lại đăng nhập
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="auth-page">
@@ -100,9 +185,9 @@ function AuthPage() {
             />
           </div>
 
-          <div className="form-group">
+          <div className="form-group password-group">
             <input
-              type="password"
+              type={showPassword ? "text" : "password"}
               className="form-input"
               placeholder="Mật khẩu"
               value={formData.password}
@@ -112,6 +197,13 @@ function AuthPage() {
               required
               minLength={6}
             />
+            <button
+              type="button"
+              className="password-toggle"
+              onClick={() => setShowPassword(!showPassword)}
+            >
+              {showPassword ? <EyeOffIcon size={20} /> : <EyeIcon size={20} />}
+            </button>
           </div>
 
           {error && <div className="error-msg">{error}</div>}
@@ -124,6 +216,23 @@ function AuthPage() {
               : "Tạo tài khoản"}
           </button>
         </form>
+
+        <div className="auth-divider">
+          <span>hoặc</span>
+        </div>
+
+        <button
+          className="google-btn"
+          onClick={() => {
+            window.location.href = "http://localhost:3001/api/auth/google";
+          }}
+        >
+          <img
+            src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
+            alt="Google"
+          />
+          Tiếp tục với Google
+        </button>
       </div>
     </div>
   );

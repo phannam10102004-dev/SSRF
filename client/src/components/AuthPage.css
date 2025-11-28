@@ -143,6 +143,36 @@
 .form-group {
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+.password-group .form-input {
+  padding-right: 40px;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  width: auto !important;
+  height: auto !important;
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+
+.password-toggle:hover {
+  color: var(--primary-color);
+  background: rgba(99, 102, 241, 0.1) !important;
 }
 
 .form-input {
@@ -224,4 +254,51 @@
   color: var(--danger);
   font-size: 14px;
   text-align: center;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  margin: 24px 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--divider);
+}
+
+.auth-divider span {
+  padding: 0 12px;
+}
+
+.google-btn {
+  width: 100%;
+  padding: 12px;
+  background: white;
+  border: 2px solid var(--divider);
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-main);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.google-btn:hover {
+  background: var(--bg-input);
+  border-color: var(--text-muted);
+}
+
+.google-btn img {
+  width: 20px;
+  height: 20px;
 }

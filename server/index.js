@@ -1,5 +1,23 @@
-// Load environment variables từ file .env
 require("dotenv").config();
+
+// Polyfill File for Node 18 + undici compatibility
+if (typeof global.File === "undefined") {
+  try {
+    const { Blob } = require("buffer");
+    const BlobClass = global.Blob || Blob;
+    if (BlobClass) {
+      global.File = class File extends BlobClass {
+        constructor(fileBits, fileName, options) {
+          super(fileBits, options);
+          this.name = fileName;
+          this.lastModified = options?.lastModified || Date.now();
+        }
+      };
+    }
+  } catch (e) {
+    console.error('Error applying File polyfill:', e);
+  }
+}
 
 const express = require("express");
 const cors = require("cors");
@@ -26,6 +44,9 @@ const fs = require("fs");
 const upload = multer({ dest: "uploads/" });
 const http = require("http");
 const socketIo = require("socket.io");
+const passport = require("./config/passport");
+const { sendOTP } = require("./utils/emailService");
+const crypto = require("crypto");
 
 const app = express();
 const server = http.createServer(app);
@@ -78,6 +99,7 @@ app.use(
 // Tăng giới hạn body size để xử lý payload lớn (50MB)
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.use(passport.initialize());
 
 // ========== AUTHENTICATION MIDDLEWARE ==========
 const authenticateToken = async (req, res, next) => {
@@ -110,6 +132,33 @@ const authenticateToken = async (req, res, next) => {
 };
 
 // ========== AUTHENTICATION ENDPOINTS ==========
+
+// Google Auth
+app.get(
+  "/api/auth/google",
+  passport.authenticate("google", {
+    scope: ["profile", "email"],
+    prompt: "select_account",
+  })
+);
+
+app.get(
+  "/api/auth/google/callback",
+  passport.authenticate("google", { session: false, failureRedirect: "/login" }),
+  (req, res) => {
+    // Successful authentication
+    const token = jwt.sign(
+      { userId: req.user._id, email: req.user.email },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    // Redirect to client with token
+    // In production, use a more secure way to pass token (e.g. cookie or postMessage)
+    // For this demo, passing via query param
+    res.redirect(`http://localhost:3000/auth/google/callback?token=${token}`);
+  }
+);
 
 // Đăng ký
 app.post("/api/auth/register", async (req, res) => {
@@ -201,6 +250,34 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(401).json({ error: "Email hoặc mật khẩu không đúng" });
     }
 
+    // Check 2FA
+    if (user.twoFactor && user.twoFactor.enabled) {
+      // Generate OTP
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+      user.twoFactor.otpCode = otp;
+      user.twoFactor.otpExpires = otpExpires;
+      await user.save();
+
+      // Send OTP
+      await sendOTP(user.email, otp);
+
+      // Return temp token (short lived, only for verifying OTP)
+      const tempToken = jwt.sign(
+        { userId: user._id, type: "2fa_pending" },
+        JWT_SECRET,
+        { expiresIn: "10m" }
+      );
+
+      return res.json({
+        success: true,
+        requireOtp: true,
+        tempToken,
+        message: "Vui lòng nhập mã OTP đã được gửi đến email của bạn",
+      });
+    }
+
     // Cập nhật lastLoginAt
     user.lastLoginAt = new Date();
     await user.save();
@@ -222,11 +299,164 @@ app.post("/api/auth/login", async (req, res) => {
         role: user.role,
         avatar: user.avatar,
         bio: user.bio,
+        settings: user.settings,
       },
     });
   } catch (error) {
     console.error("❌ Lỗi đăng nhập:", error);
     res.status(500).json({ error: "Lỗi khi đăng nhập. Vui lòng thử lại." });
+  }
+});
+
+// Verify OTP
+app.post("/api/auth/verify-otp", async (req, res) => {
+  try {
+    const { otp, tempToken } = req.body;
+
+    if (!otp || !tempToken) {
+      return res.status(400).json({ error: "Thiếu thông tin xác thực" });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(tempToken, JWT_SECRET);
+    } catch (e) {
+      return res.status(401).json({ error: "Token hết hạn hoặc không hợp lệ" });
+    }
+
+    const user = await User.findById(decoded.userId);
+    if (!user) {
+      return res.status(404).json({ error: "User không tồn tại" });
+    }
+
+    if (
+      !user.twoFactor.otpCode ||
+      user.twoFactor.otpCode !== otp ||
+      new Date() > user.twoFactor.otpExpires
+    ) {
+      return res.status(400).json({ error: "Mã OTP không đúng hoặc đã hết hạn" });
+    }
+
+    // Clear OTP
+    user.twoFactor.otpCode = null;
+    user.twoFactor.otpExpires = null;
+    user.lastLoginAt = new Date();
+    await user.save();
+
+    // Generate real token
+    const token = jwt.sign(
+      { userId: user._id, email: user.email },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        avatar: user.avatar,
+        bio: user.bio,
+        settings: user.settings,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Lỗi verify OTP:", error);
+    res.status(500).json({ error: "Lỗi xác thực OTP" });
+  }
+});
+
+// ========== SETTINGS ENDPOINTS ==========
+
+// Get settings
+app.get("/api/users/settings", authenticateToken, async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      settings: req.user.settings,
+      twoFactorEnabled: req.user.twoFactor?.enabled || false,
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Lỗi lấy cài đặt" });
+  }
+});
+
+// Update settings
+app.put("/api/users/settings", authenticateToken, async (req, res) => {
+  try {
+    const { settings } = req.body;
+    
+    // Merge settings
+    req.user.settings = { ...req.user.settings, ...settings };
+    await req.user.save();
+
+    res.json({
+      success: true,
+      settings: req.user.settings,
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Lỗi cập nhật cài đặt" });
+  }
+});
+
+// Enable 2FA (Directly, without OTP verification as requested)
+app.post("/api/auth/2fa/enable", authenticateToken, async (req, res) => {
+  try {
+    req.user.twoFactor = {
+      ...req.user.twoFactor,
+      enabled: true,
+      otpCode: null,
+      otpExpires: null,
+    };
+    await req.user.save();
+
+    res.json({
+      success: true,
+      message: "Đã bật xác thực 2 lớp thành công",
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Lỗi bật 2FA" });
+  }
+});
+
+// Confirm Enable 2FA - Deprecated/Unused but kept for reference or if we revert
+app.post("/api/auth/2fa/confirm", authenticateToken, async (req, res) => {
+  res.json({ success: true, message: "Endpoint deprecated" });
+});
+
+// Disable 2FA
+app.post("/api/auth/2fa/disable", authenticateToken, async (req, res) => {
+  try {
+    const { password } = req.body;
+    console.log("Disable 2FA Request:", { userId: req.user._id, hasPassword: !!password });
+
+    // Fetch user with password explicitly since req.user has it excluded
+    const user = await User.findById(req.user._id);
+    
+    if (!user) {
+      console.log("User not found for ID:", req.user._id);
+      return res.status(404).json({ error: "User không tồn tại" });
+    }
+
+    // Verify password before disabling
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      console.log("Password invalid for user:", user.email);
+      return res.status(401).json({ error: "Mật khẩu không đúng" });
+    }
+
+    user.twoFactor.enabled = false;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "Đã tắt xác thực 2 lớp",
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Lỗi tắt 2FA" });
   }
 });
 
@@ -242,6 +472,10 @@ app.get("/api/auth/me", authenticateToken, async (req, res) => {
         role: req.user.role,
         avatar: req.user.avatar,
         bio: req.user.bio,
+        settings: req.user.settings,
+        twoFactor: {
+          enabled: req.user.twoFactor?.enabled || false,
+        },
       },
     });
   } catch (error) {
@@ -836,6 +1070,100 @@ app.delete("/api/posts/:postId", authenticateToken, async (req, res) => {
     });
   }
 });
+
+// Update post
+app.put(
+  "/api/posts/:id",
+  authenticateToken,
+  upload.array("images", 10),
+  async (req, res) => {
+    try {
+      const post = await Post.findById(req.params.id);
+      if (!post) {
+        return res.status(404).json({ error: "Bài viết không tồn tại" });
+      }
+
+      // Check ownership
+      const authorId = post.author?._id || post.author;
+      const requesterId = req.user?._id || req.user?.id;
+      
+      const authorIdString = authorId?.toString();
+      const requesterIdString = requesterId?.toString();
+
+      console.log("Debug Edit Post:", {
+        postId: post._id,
+        authorIdString,
+        requesterIdString,
+        match: authorIdString === requesterIdString
+      });
+
+      if (authorIdString !== requesterIdString) {
+        return res.status(403).json({ 
+          error: "Không có quyền sửa bài viết này",
+          debug: {
+            authorId: authorIdString,
+            requesterId: requesterIdString
+          }
+        });
+      }
+
+      const { content, linkPreview } = req.body;
+      
+      // Update content
+      if (content !== undefined) {
+        post.content = content.trim();
+      }
+
+      // Update linkPreview if provided
+      if (linkPreview) {
+        try {
+          const parsed =
+            typeof linkPreview === "string"
+              ? JSON.parse(linkPreview)
+              : linkPreview;
+          
+          // Clean sensitive data if needed (similar to create post)
+          let cleanedLinkPreview = { ...parsed };
+          if (
+            cleanedLinkPreview.rawResponse &&
+            cleanedLinkPreview.rawResponse.data
+          ) {
+            cleanedLinkPreview.rawResponse = {
+              status: cleanedLinkPreview.rawResponse.status,
+              headers: cleanedLinkPreview.rawResponse.headers,
+            };
+          }
+          post.linkPreview = cleanedLinkPreview;
+        } catch (e) {
+          console.error("Error parsing linkPreview update:", e);
+        }
+      } else if (content && !content.match(/(https?:\/\/[^\s]+)/g)) {
+         // If content has no link and no linkPreview sent, maybe clear it?
+         // But CreatePostModal sends linkPreview if it exists.
+         // If user removed link, CreatePostModal sends linkPreview as null or doesn't send it?
+         // CreatePostModal logic: formData.append if linkPreview exists.
+         // If user removed preview, linkPreview is null, so not appended.
+         // So if not in body, we might want to clear it IF the user intended to remove it.
+         // But FormData doesn't send missing fields.
+         // Let's assume if content changed and no link, we might want to clear.
+         // For now, let's just update if sent.
+      }
+
+      // Note: We are NOT updating images for now as per plan, 
+      // but we use upload.array to parse the body.
+      
+      await post.save();
+
+      // Populate author info
+      await post.populate("author", "name avatar");
+
+      res.json({ success: true, post });
+    } catch (error) {
+      console.error("Lỗi khi sửa bài viết:", error);
+      res.status(500).json({ error: "Lỗi server" });
+    }
+  }
+);
 
 // Chia sẻ post (tăng share count)
 app.post("/api/posts/:postId/share", authenticateToken, async (req, res) => {
@@ -1913,10 +2241,16 @@ app.post(
       const fs = require("fs");
       fs.unlinkSync(req.file.path);
 
+      // Fix encoding for filename
+      const originalName = Buffer.from(req.file.originalname, "latin1").toString(
+        "utf8"
+      );
+
       res.json({
         success: true,
         fileUrl: result.secure_url,
-        fileName: req.file.originalname,
+        fileName: originalName,
+        fileSize: req.file.size,
         fileType: req.file.mimetype.startsWith("image/") ? "image" : "file",
       });
     } catch (error) {
@@ -2460,6 +2794,8 @@ io.on("connection", (socket) => {
         type: type || "text",
         fileUrl: fileUrl || "",
         fileName: fileName || "",
+        fileSize: fileSize || 0,
+        read: false,
       });
       await message.save();
 

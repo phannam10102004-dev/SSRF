@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import "./Header.css";
 import {
@@ -11,6 +12,7 @@ import {
   HelpIcon,
   LogoutIcon,
   SettingsIcon,
+  LockIcon,
 } from "./Icons";
 import Notifications from "./Notifications";
 import MessagesList from "./MessagesList";
@@ -26,6 +28,8 @@ function Header({
   onNotificationClick,
   onViewProfile,
   onChatsChange,
+  onOpenChat,
+  openChats,
   onSocketChange,
 }) {
   const [showMenu, setShowMenu] = useState(false);
@@ -115,6 +119,8 @@ function Header({
     setShowSearchResults(false);
   };
 
+  const navigate = useNavigate();
+
   return (
     <header className="main-header">
       <div className="header-left">
@@ -190,6 +196,8 @@ function Header({
       <div className="header-right">
         <MessagesList
           onChatsChange={onChatsChange}
+          onOpenChat={onOpenChat}
+          openChats={openChats}
           onSocketChange={onSocketChange}
           isOpen={activeDropdown === "messages"}
           onToggle={(isOpen) => {
@@ -248,12 +256,18 @@ function Header({
                   setShowMenu(false);
                 }}
               >
+                <LockIcon size={20} />
+                <span>Đổi mật khẩu</span>
+              </div>
+              <div
+                className="dropdown-item"
+                onClick={() => {
+                  navigate("/settings");
+                  setShowMenu(false);
+                }}
+              >
                 <SettingsIcon size={20} />
                 <span>Cài đặt</span>
-              </div>
-              <div className="dropdown-item">
-                <HelpIcon size={20} />
-                <span>Trợ giúp & Hỗ trợ</span>
               </div>
               <div className="dropdown-divider"></div>
               <div className="dropdown-item logout" onClick={onLogout}>

@@ -66,7 +66,29 @@ function SocialFeed({
     };
 
     window.addEventListener("post_deleted", handlePostDeleted);
-    return () => window.removeEventListener("post_deleted", handlePostDeleted);
+
+    const handlePostUpdated = (event) => {
+      const updatedPost = event.detail;
+      console.log("SocialFeed received post_updated:", updatedPost);
+      setPosts((prev) => {
+        const newPosts = prev.map((post) => {
+          const isMatch = (post._id || post.id)?.toString() === (updatedPost._id || updatedPost.id)?.toString();
+          if (isMatch) {
+            console.log("Updating post in feed:", post.id);
+            return normalizePost(updatedPost);
+          }
+          return post;
+        });
+        return newPosts;
+      });
+    };
+
+    window.addEventListener("post_updated", handlePostUpdated);
+
+    return () => {
+      window.removeEventListener("post_deleted", handlePostDeleted);
+      window.removeEventListener("post_updated", handlePostUpdated);
+    };
   }, []);
 
   const handlePostCreated = (newPost) => {
