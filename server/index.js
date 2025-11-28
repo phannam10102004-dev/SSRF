@@ -48,6 +48,9 @@ const passport = require("./config/passport");
 const { sendOTP } = require("./utils/emailService");
 const crypto = require("crypto");
 
+const PORT = process.env.PORT || 3001;
+const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
+
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
@@ -59,8 +62,6 @@ const io = socketIo(server, {
   },
   transports: ["websocket", "polling"],
 });
-const PORT = process.env.PORT || 3001;
-const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
 const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://localhost:27017/ssrf-demo";
 const JWT_SECRET =
