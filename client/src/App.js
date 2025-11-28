@@ -10,9 +10,11 @@ import {
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import "./App.css";
 import AuthPage from "./components/AuthPage";
+import GoogleCallback from "./components/GoogleCallback";
 import SocialFeed from "./components/SocialFeed";
 import FriendsPage from "./components/FriendsPage";
 import ProfilePage from "./components/ProfilePage";
+import SettingsPage from "./components/SettingsPage";
 import Header from "./components/Header";
 import { ChatWindows } from "./components/MessagesList";
 import ContactsList from "./components/ContactsList";
@@ -32,6 +34,21 @@ function AppContent() {
   const [openChats, setOpenChats] = useState([]);
   const [messagesSocket, setMessagesSocket] = useState(null);
   const [focusedPostId, setFocusedPostId] = useState(null);
+
+  // Apply theme
+  React.useEffect(() => {
+    if (user?.settings?.theme === "dark") {
+      document.body.classList.add("dark-mode");
+    } else if (user?.settings?.theme === "light") {
+      document.body.classList.remove("dark-mode");
+    } else if (user?.settings?.theme === "system") {
+      if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+        document.body.classList.add("dark-mode");
+      } else {
+        document.body.classList.remove("dark-mode");
+      }
+    }
+  }, [user?.settings?.theme]);
 
   const handleHeaderTabChange = (tab) => {
     setHeaderTab(tab);
@@ -70,8 +87,29 @@ function AppContent() {
   }
 
   if (!user) {
+    if (location.pathname === "/auth/google/callback") {
+      return <GoogleCallback />;
+    }
     return <AuthPage />;
   }
+
+  // Chat management
+  const openChat = (userId, userName, userAvatar) => {
+    // Check if chat is already open
+    const existingChat = openChats.find((chat) => chat.userId === userId);
+    if (existingChat) {
+      return;
+    }
+
+    setOpenChats((prev) => {
+      let newChats = [...prev, { userId, userName, userAvatar }];
+      // Limit to 3 chat windows
+      if (newChats.length > 3) {
+        newChats = newChats.slice(-3);
+      }
+      return newChats;
+    });
+  };
 
   return (
     <div className="app-container">
@@ -102,7 +140,9 @@ function AppContent() {
           }
         }}
         onViewProfile={handleViewProfile}
-        onChatsChange={setOpenChats}
+        onChatsChange={setOpenChats} // Keep for backward compatibility if needed, but openChat is preferred
+        onOpenChat={openChat}
+        openChats={openChats}
         onSocketChange={setMessagesSocket}
       />
 
@@ -141,7 +181,12 @@ function AppContent() {
             </div>
             <span>Bạn bè</span>
           </div>
-          <div className="sidebar-item">
+          <div
+            className={`sidebar-item ${
+              location.pathname === "/settings" ? "active" : ""
+            }`}
+            onClick={() => navigate("/settings")}
+          >
             <div className="sidebar-icon">
               <SettingsIcon size={20} />
             </div>
@@ -189,6 +234,16 @@ function AppContent() {
               path="/profile/:userId"
               element={<ProfilePageWithParams reloadKey={profileReloadKey} />}
             />
+            <Route
+              path="/profile/:userId"
+              element={<ProfilePageWithParams reloadKey={profileReloadKey} />}
+            />
+            <Route
+              path="/profile/:userId"
+              element={<ProfilePageWithParams reloadKey={profileReloadKey} />}
+            />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/auth/google/callback" element={<GoogleCallback />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
@@ -199,11 +254,7 @@ function AppContent() {
           </div>
           <ContactsList
             onViewProfile={handleViewProfile}
-            onOpenChat={(userId, userName, userAvatar) => {
-              if (window.openChat) {
-                window.openChat(userId, userName, userAvatar);
-              }
-            }}
+            onOpenChat={openChat}
           />
         </div>
       </div>

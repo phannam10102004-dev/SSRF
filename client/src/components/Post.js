@@ -3,6 +3,7 @@ import axios from "axios";
 import { useAuth } from "../contexts/AuthContext";
 import "./SocialMedia.css";
 import { LikeIcon, CommentBubbleIcon, ShareIcon, MoreIcon } from "./Icons";
+import CreatePostModal from "./CreatePostModal";
 
 const API_BASE_URL = "http://localhost:3001/api";
 const REACTION_OPTIONS = [
@@ -65,8 +66,49 @@ function Post({
   const [sharing, setSharing] = useState(false);
   const [shareFeedback, setShareFeedback] = useState("");
   const [showActions, setShowActions] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const popoverTimeoutRef = useRef(null);
   const actionsRef = useRef(null);
+
+  // ... (keep getInitials and other hooks)
+
+  // ... (keep useEffects)
+
+  // ... (keep helper functions)
+
+  // ... (keep reaction logic)
+
+  // ... (keep comment logic)
+
+  // ... (keep share logic)
+
+  const canDeletePost =
+    currentUserId &&
+    (currentUserId ===
+      (post.author?._id?.toString() || post.author?.toString()) ||
+      user?.role === "admin");
+
+  const handleDeletePost = async () => {
+    if (!canDeletePost) return;
+    if (!window.confirm("Bạn có chắc chắn muốn xóa bài viết này?")) return;
+
+    try {
+      await axios.delete(`${API_BASE_URL}/posts/${postId}`);
+      window.dispatchEvent(new CustomEvent("post_deleted", { detail: postId }));
+    } catch (error) {
+      setReactionError(error.response?.data?.error || "Không thể xóa bài viết");
+    } finally {
+      setShowActions(false);
+    }
+  };
+
+  const handlePostUpdated = (updatedPost) => {
+    // Dispatch event to update parent list or update local state if we had it.
+    // Since Post receives 'post' as prop, ideally parent should update.
+    // We can dispatch an event that SocialFeed listens to.
+    window.dispatchEvent(new CustomEvent("post_updated", { detail: updatedPost }));
+    setShowEditModal(false);
+  };
 
   const getInitials = (name) => {
     if (!name) return "?";
@@ -422,25 +464,9 @@ function Post({
     }
   };
 
-  const canDeletePost =
-    currentUserId &&
-    (currentUserId ===
-      (post.author?._id?.toString() || post.author?.toString()) ||
-      user?.role === "admin");
 
-  const handleDeletePost = async () => {
-    if (!canDeletePost) return;
-    if (!window.confirm("Bạn có chắc chắn muốn xóa bài viết này?")) return;
 
-    try {
-      await axios.delete(`${API_BASE_URL}/posts/${postId}`);
-      window.dispatchEvent(new CustomEvent("post_deleted", { detail: postId }));
-    } catch (error) {
-      setReactionError(error.response?.data?.error || "Không thể xóa bài viết");
-    } finally {
-      setShowActions(false);
-    }
-  };
+
 
   return (
     <div
@@ -486,6 +512,12 @@ function Post({
             </button>
             {showActions && (
               <div className="post-action-dropdown">
+                {currentUserId === (post.author?._id?.toString() || post.author?.toString()) && (
+                  <button onClick={() => {
+                    setShowEditModal(true);
+                    setShowActions(false);
+                  }}>Sửa bài viết</button>
+                )}
                 <button onClick={handleDeletePost}>Xóa bài viết</button>
               </div>
             )}
@@ -496,6 +528,16 @@ function Post({
       <div className="post-content">
         {post.content && <p>{post.content}</p>}
       </div>
+
+      {showEditModal && (
+        <CreatePostModal
+          isOpen={showEditModal}
+          onClose={() => setShowEditModal(false)}
+          postToEdit={post}
+          onPostUpdated={handlePostUpdated}
+          isVulnerable={isVulnerable}
+        />
+      )}
 
       {post.linkPreview && (
         <div className="link-preview-container">

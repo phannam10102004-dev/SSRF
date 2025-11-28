@@ -4,11 +4,14 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 2000;
+  z-index: 9999;
+  padding: 20px;
+  height: 100vh;
+  width: 100vw;
 }
 
 .settings-modal {
@@ -16,22 +19,158 @@
   max-width: 420px;
   background: var(--bg-card);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-2xl);
   border: 1px solid var(--divider);
   overflow: hidden;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  animation: modalFadeIn 0.3s ease-out;
+  position: relative;
+  margin: 0; /* Reset margin to rely on flex centering */
+}
+
+/* ... existing keyframes ... */
+
+/* ... existing header styles ... */
+
+/* ... existing body styles ... */
+
+/* ... existing form styles ... */
+
+/* ... existing input styles ... */
+
+/* ... existing password toggle styles ... */
+
+.settings-form-actions {
+  display: flex;
+  align-items: center; /* Ensure buttons are vertically aligned */
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.settings-form-actions button {
+  flex: 1 1 0;
+  height: 44px;
+  padding: 0;
+  margin: 0; /* Remove default margins */
+  border-radius: var(--radius-lg);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.settings-form-actions .save-btn {
+  background: var(--primary-gradient);
+  color: #fff;
+}
+
+.settings-form-actions .save-btn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.settings-form-actions .save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.settings-form-actions .cancel-btn {
+  background: var(--bg-secondary);
+  color: var(--text-main);
+  border: 1px solid var(--divider);
+}
+
+.settings-form-actions .cancel-btn:hover {
+  background: var(--divider);
+}
+
+/* ... existing keyframes ... */
+
+/* ... existing header styles ... */
+
+/* ... existing body styles ... */
+
+/* ... existing form styles ... */
+
+/* ... existing input styles ... */
+
+/* ... existing password toggle styles ... */
+
+.settings-form-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.settings-form-actions button {
+  flex: 1;
+  padding: 12px;
+  border-radius: var(--radius-lg);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+  border: none;
+}
+
+.settings-form-actions .save-btn {
+  background: var(--primary-gradient);
+  color: #fff;
+}
+
+.settings-form-actions .save-btn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.settings-form-actions .save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.settings-form-actions .cancel-btn {
+  background: var(--bg-secondary);
+  color: var(--text-main);
+  border: 1px solid var(--divider);
+}
+
+.settings-form-actions .cancel-btn:hover {
+  background: var(--divider);
+}
+
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .settings-modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
+  padding: 16px 24px;
   border-bottom: 1px solid var(--divider);
 }
 
 .settings-modal-header h3 {
   margin: 0;
   font-size: 1.1rem;
+  font-weight: 600;
 }
 
 .settings-modal-header button {
@@ -40,20 +179,35 @@
   font-size: 1.5rem;
   cursor: pointer;
   color: var(--text-muted);
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background 0.2s;
+}
+
+.settings-modal-header button:hover {
+  background: var(--bg-input);
+  color: var(--text-main);
 }
 
 .settings-modal-body {
-  padding: 20px;
+  padding: 24px;
+  overflow-y: auto;
 }
 
 .settings-modal-body h4 {
   margin-top: 0;
+  margin-bottom: 20px;
+  font-size: 1rem;
+  color: var(--text-main);
 }
 
 .settings-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
 
 .settings-form label {
@@ -61,39 +215,100 @@
   color: var(--text-main);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  font-weight: 500;
 }
 
 .settings-form input {
-  padding: 10px 12px;
+  padding: 12px 14px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--divider);
   background: var(--bg-input);
+  width: 100%;
+  font-size: 14px;
+  transition: all 0.2s;
 }
 
-.settings-form button {
-  margin-top: 8px;
-  padding: 10px 16px;
+.settings-form input:focus {
+  border-color: var(--primary-color);
+  background: var(--bg-card);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.password-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-input-wrapper input {
+  padding-right: 40px;
+}
+
+.password-toggle-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  margin: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  border-radius: 50%;
+}
+
+.password-toggle-btn:hover {
+  color: var(--primary-color);
+  background: rgba(99, 102, 241, 0.1) !important;
+}
+
+.settings-form button[type="submit"] {
+  margin-top: 12px;
+  padding: 12px;
   background: var(--primary-gradient);
   border: none;
   border-radius: var(--radius-lg);
   color: #fff;
   font-weight: 600;
   cursor: pointer;
+  transition: all 0.2s;
+}
+
+.settings-form button[type="submit"]:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
 }
 
 .settings-form button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+  transform: none;
 }
 
 .settings-error {
   color: #dc2626;
   font-size: 0.85rem;
+  padding: 8px 12px;
+  background: #fef2f2;
+  border-radius: var(--radius-md);
+  border: 1px solid #fee2e2;
 }
 
 .settings-success {
-  color: var(--success);
+  color: #059669;
   font-size: 0.85rem;
+  padding: 8px 12px;
+  background: #ecfdf5;
+  border-radius: var(--radius-md);
+  border: 1px solid #d1fae5;
 }
 

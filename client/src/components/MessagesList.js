@@ -8,10 +8,10 @@ import "./MessagesList.css";
 const API_BASE_URL = "http://localhost:3001/api";
 const SOCKET_URL = "http://localhost:3001";
 
-function MessagesList({ onChatsChange, onSocketChange, isOpen, onToggle }) {
+function MessagesList({ onChatsChange, onSocketChange, isOpen, onToggle, onOpenChat, openChats }) {
   const { user } = useAuth();
   const [socket, setSocket] = useState(null);
-  const [openChats, setOpenChats] = useState([]); // Array of {userId, userName, userAvatar}
+  // const [openChats, setOpenChats] = useState([]); // Removed local state
   const [conversations, setConversations] = useState([]);
   const [showList, setShowList] = useState(false);
   const iconRef = useRef(null);
@@ -133,34 +133,13 @@ function MessagesList({ onChatsChange, onSocketChange, isOpen, onToggle }) {
     }
   };
 
-  const openChat = React.useCallback(
-    (userId, userName, userAvatar) => {
-      // Kiểm tra xem chat đã mở chưa
-      const existingChat = openChats.find((chat) => chat.userId === userId);
-      if (existingChat) {
-        // Nếu đã mở, không làm gì (hoặc có thể focus vào chat đó)
-        return;
+  const openChat = (userId, userName, userAvatar) => {
+      if (onOpenChat) {
+          onOpenChat(userId, userName, userAvatar);
       }
+  };
 
-      setOpenChats((prev) => {
-        let newChats = [...prev, { userId, userName, userAvatar }];
-
-        // Giới hạn tối đa 3 chat windows
-        if (newChats.length > 3) {
-          // Đóng chat cũ nhất (chat đầu tiên trong mảng)
-          newChats = newChats.slice(-3);
-        }
-
-        if (onChatsChange) {
-          onChatsChange(newChats);
-        }
-        return newChats;
-      });
-    },
-    [openChats, onChatsChange]
-  );
-
-  // Expose openChat globally
+  // Expose openChat globally - Keep for backward compatibility if needed
   useEffect(() => {
     window.openChat = openChat;
     return () => {

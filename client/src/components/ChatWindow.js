@@ -284,7 +284,7 @@ function ChatWindow({ userId, userName, userAvatar, onClose, socket }) {
         }
       );
 
-      const { fileUrl, fileName, fileType } = uploadResponse.data;
+      const { fileUrl, fileName, fileType, fileSize } = uploadResponse.data;
 
       socket.emit("send_message", {
         receiverId: userId,
@@ -292,6 +292,7 @@ function ChatWindow({ userId, userName, userAvatar, onClose, socket }) {
         type: fileType,
         fileUrl: fileUrl,
         fileName: fileName,
+        fileSize: fileSize,
       });
     } catch (error) {
       console.error("Lỗi khi upload file:", error);
@@ -326,6 +327,60 @@ function ChatWindow({ userId, userName, userAvatar, onClose, socket }) {
       .join("")
       .toUpperCase()
       .slice(0, 2);
+  };
+
+  // Helper để sửa lỗi font (mojibake) cho tin nhắn cũ
+  const fixEncoding = (str) => {
+    if (!str) return "";
+    try {
+      // Thử decode nếu chuỗi bị lỗi encoding (UTF-8 đọc như Latin-1)
+      return decodeURIComponent(escape(str));
+    } catch (e) {
+      return str;
+    }
+  };
+
+  const handleDownload = async (e, fileUrl, fileName) => {
+    e.preventDefault();
+    const fixedName = fixEncoding(fileName);
+    
+    // Helper để tạo URL download từ Cloudinary
+    const getCloudinaryDownloadUrl = (url, name) => {
+      if (url.includes("/upload/")) {
+        const encodedName = encodeURIComponent(name);
+        return url.replace("/upload/", `/upload/fl_attachment:${encodedName}/`);
+      }
+      return url;
+    };
+
+    try {
+      // Cách 1: Thử fetch blob (ưu tiên vì xử lý được mọi loại URL)
+      const response = await axios.get(fileUrl, {
+        responseType: "blob",
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", fixedName);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Lỗi khi tải file (blob), thử cách 2:", error);
+      
+      // Cách 2: Dùng tính năng của Cloudinary hoặc mở tab mới
+      const downloadUrl = getCloudinaryDownloadUrl(fileUrl, fixedName);
+      
+      // Tạo link ẩn để click (tốt hơn window.open)
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.setAttribute("download", fixedName); // Hint cho browser
+      link.target = "_blank";
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+    }
   };
 
   if (loading) {
@@ -404,6 +459,8 @@ function ChatWindow({ userId, userName, userAvatar, onClose, socket }) {
                 );
               }
 
+              const displayFileName = fixEncoding(message.fileName || message.content);
+
               return (
                 <div
                   key={message._id}
@@ -431,11 +488,39 @@ function ChatWindow({ userId, userName, userAvatar, onClose, socket }) {
                     ) : message.type === "file" ? (
                       <a
                         href={message.fileUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="message-file"
+                        onClick={(e) =>
+                          handleDownload(
+                            e,
+                            message.fileUrl,
+                            message.fileName || message.content
+                          )
+                        }
+                        className="message-file-card"
+                        title={displayFileName}
                       >
-                        📎 {message.fileName || message.content}
+                        <div className="file-icon">
+                          {displayFileName?.endsWith(".pdf")
+                            ? "📄"
+                            : displayFileName?.match(/\.(doc|docx)$/)
+                            ? "📝"
+                            : "📎"}
+                        </div>
+                        <div className="file-info">
+                          <div className="file-name">
+                            {displayFileName}
+                          </div>
+                          <div className="file-meta">
+                            <span className="file-size">
+                              {message.fileSize
+                                ? (message.fileSize / 1024).toFixed(2) + " KB"
+                                : "Unknown size"}
+                            </span>
+                            <span className="file-dot">•</span>
+                            <span className="file-type">
+                              {displayFileName?.split(".").pop().toUpperCase()}
+                            </span>
+                          </div>
+                        </div>
                       </a>
                     ) : (
                       <div className="message-text">{message.content}</div>

@@ -23,5 +23,10 @@
   "license": "MIT",
   "devDependencies": {
     "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "i18next": "^25.6.3",
+    "i18next-http-backend": "^3.0.2",
+    "react-i18next": "^16.3.5"
   }
 }
