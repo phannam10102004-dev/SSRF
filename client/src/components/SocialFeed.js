@@ -4,6 +4,9 @@ import CreatePost from "./CreatePost";
 import Post from "./Post";
 import FriendSuggestions from "./FriendSuggestions";
 import "./SocialMedia.css";
+import { getBackendUrl } from "../util";
+
+const API_BASE_URL = getBackendUrl();
 
 const normalizePost = (post) => ({
   ...post,
@@ -37,7 +40,7 @@ function SocialFeed({
     try {
       setLoading(true);
       const response = await axios.get(
-        `http://localhost:3001/api/posts?isVulnerable=${isVulnerable}`
+        `${API_BASE_URL}/api/posts?isVulnerable=${isVulnerable}`
       );
       const formattedPosts = response.data.posts.map((post) =>
         normalizePost(post)

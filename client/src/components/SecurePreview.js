@@ -1,6 +1,9 @@
 import React, { useState } from "react";
 import axios from "axios";
 import "./Preview.css";
+import { getBackendUrl } from "../util";
+
+const API_BASE_URL = getBackendUrl();
 
 const SECURE_EXAMPLES = [
   {
@@ -15,7 +18,7 @@ const SECURE_EXAMPLES = [
   },
   {
     name: "Localhost (Bị chặn)",
-    url: "http://localhost:3001/api/health",
+    url: `${API_BASE_URL}/api/health`,
     description: "Sẽ bị chặn vì là internal IP",
   },
   {
@@ -42,7 +45,7 @@ function SecurePreview() {
 
     try {
       const response = await axios.post(
-        "http://localhost:3001/api/secure/preview",
+        `${API_BASE_URL}/api/secure/preview`,
         { url }
       );
       console.log("✅ API Response:", response.data);

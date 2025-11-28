@@ -1,23 +1,26 @@
 import React, { useState } from "react";
 import axios from "axios";
 import "./Preview.css";
+import { getBackendUrl } from "../util";
+
+const API_BASE_URL = getBackendUrl();
 
 const VULNERABLE_EXAMPLES = [
   {
     name: "🏠 Localhost Attack",
-    url: "http://localhost:3001/api/health",
+    url: `${API_BASE_URL}/api/health`,
     description: "Tấn công đến localhost - có thể truy cập internal services",
     level: "Dễ",
   },
   {
     name: "🔐 Internal API (Users)",
-    url: "http://localhost:3001/api/internal/users",
+    url: `${API_BASE_URL}/api/internal/users`,
     description: "Lấy danh sách users từ internal API - dữ liệu nhạy cảm!",
     level: "Thú vị",
   },
   {
     name: "⚙️ Internal Config",
-    url: "http://localhost:3001/api/internal/config",
+    url: `${API_BASE_URL}/api/internal/config`,
     description: "Lấy config và secrets từ internal endpoint - rất nguy hiểm!",
     level: "Nguy hiểm",
   },
@@ -37,7 +40,7 @@ const VULNERABLE_EXAMPLES = [
   },
   {
     name: "🔍 Port Scan Demo",
-    url: "http://localhost:3001/api/internal/scan/3306",
+    url: `${API_BASE_URL}/api/internal/scan/3306`,
     description: "Demo quét port để tìm service (MySQL port 3306)",
     level: "Thú vị",
   },
@@ -65,7 +68,7 @@ function VulnerablePreview() {
 
     try {
       const response = await axios.post(
-        "http://localhost:3001/api/vulnerable/preview",
+        `${API_BASE_URL}/api/vulnerable/preview`,
         { url }
       );
       setPreview(response.data);

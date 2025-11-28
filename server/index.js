@@ -52,14 +52,15 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: ["http://localhost:3000", "http://localhost:3002"],
+    origin: ["http://localhost:3000", "http://localhost:3002", "https://ssrf-client.onrender.com", CLIENT_URL],
     methods: ["GET", "POST", "OPTIONS"],
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization"],
   },
   transports: ["websocket", "polling"],
 });
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
+const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
 const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://localhost:27017/ssrf-demo";
 const JWT_SECRET =
@@ -90,7 +91,7 @@ mongoose
 
 app.use(
   cors({
-    origin: ["http://localhost:3000", "http://localhost:3002"],
+    origin: ["http://localhost:3000", "http://localhost:3002", "https://ssrf-client.onrender.com", CLIENT_URL],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -156,7 +157,7 @@ app.get(
     // Redirect to client with token
     // In production, use a more secure way to pass token (e.g. cookie or postMessage)
     // For this demo, passing via query param
-    res.redirect(`http://localhost:3000/auth/google/callback?token=${token}`);
+    res.redirect(`${CLIENT_URL}/auth/google/callback?token=${token}`);
   }
 );
 
