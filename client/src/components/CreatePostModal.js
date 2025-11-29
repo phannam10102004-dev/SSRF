@@ -321,17 +321,6 @@ function CreatePostModal({
               }
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              onPaste={(e) => {
-                // Cho phép paste bình thường, useEffect sẽ tự detect link
-                const pastedText = e.clipboardData.getData("text");
-                const currentContent = content;
-                const cursorPos = e.target.selectionStart;
-                const newContent =
-                  currentContent.slice(0, cursorPos) +
-                  pastedText +
-                  currentContent.slice(cursorPos);
-                setContent(newContent);
-              }}
               rows={4}
             />
 
